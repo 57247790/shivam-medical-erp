@@ -172,7 +172,10 @@ app.get("/api/test", async (req, res) => {
     res.json({
       success: true,
       message: "API working successfully",
-      database: result.rows[0].test === 1 ? "PostgreSQL Connected" : "Error",
+      database:
+        result.rows[0].test === 1
+          ? "PostgreSQL Connected"
+          : "Error",
     });
   } catch (error) {
     console.error("API TEST ERROR:", error);
@@ -364,15 +367,31 @@ app.post("/api/stock", async (req, res) => {
 
 app.put("/api/stock/:id", async (req, res) => {
   try {
+    // =====================================================
+    // DEBUG LOG
+    // =====================================================
+
+    console.log("==========================================");
+    console.log("🔥 STOCK PUT HIT");
+    console.log("Stock ID:", req.params.id);
+    console.log("Request Body:", req.body);
+    console.log("==========================================");
+
     const id = Number(req.params.id);
     const item = req.body || {};
 
     if (!Number.isInteger(id)) {
+      console.log("❌ INVALID STOCK ID:", req.params.id);
+
       return res.status(400).json({
         success: false,
         message: "Invalid stock ID",
       });
     }
+
+    // =====================================================
+    // GET EXISTING STOCK
+    // =====================================================
 
     const existing = await pool.query(
       `
@@ -384,6 +403,8 @@ app.put("/api/stock/:id", async (req, res) => {
     );
 
     if (existing.rows.length === 0) {
+      console.log("❌ STOCK NOT FOUND:", id);
+
       return res.status(404).json({
         success: false,
         message: "Stock item not found",
@@ -391,6 +412,29 @@ app.put("/api/stock/:id", async (req, res) => {
     }
 
     const old = existing.rows[0];
+
+    console.log("📦 OLD STOCK:");
+    console.log({
+      id: old.id,
+      medicine: old.medicine,
+      quantity: old.quantity,
+    });
+
+    // =====================================================
+    // NEW QUANTITY
+    // =====================================================
+
+    const newQuantity =
+      item.quantity !== undefined
+        ? safeNumber(item.quantity)
+        : safeNumber(old.quantity);
+
+    console.log("📉 OLD QUANTITY:", old.quantity);
+    console.log("📉 NEW QUANTITY:", newQuantity);
+
+    // =====================================================
+    // UPDATE STOCK
+    // =====================================================
 
     const result = await pool.query(
       `
@@ -441,9 +485,7 @@ app.put("/api/stock/:id", async (req, res) => {
           ? item.supplierMobile
           : old.supplierMobile,
 
-        item.quantity !== undefined
-          ? safeNumber(item.quantity)
-          : safeNumber(old.quantity),
+        newQuantity,
 
         item.rate !== undefined
           ? safeNumber(item.rate)
@@ -488,13 +530,30 @@ app.put("/api/stock/:id", async (req, res) => {
       ]
     );
 
+    // =====================================================
+    // UPDATE RESULT
+    // =====================================================
+
+    const updated = result.rows[0];
+
+    console.log("==========================================");
+    console.log("✅ STOCK UPDATE SUCCESS");
+    console.log("Stock ID:", updated.id);
+    console.log("Medicine:", updated.medicine);
+    console.log("OLD QUANTITY:", old.quantity);
+    console.log("NEW QUANTITY:", updated.quantity);
+    console.log("==========================================");
+
     res.json({
       success: true,
       message: "Stock updated successfully",
-      item: result.rows[0],
+      item: updated,
     });
   } catch (error) {
-    console.error("PUT STOCK ERROR:", error);
+    console.error("==========================================");
+    console.error("❌ PUT STOCK ERROR");
+    console.error(error);
+    console.error("==========================================");
 
     res.status(500).json({
       success: false,
@@ -856,7 +915,7 @@ app.delete("/api/bills/:id", async (req, res) => {
       bill: parseBill(result.rows[0]),
     });
   } catch (error) {
-    console.error("DELETE BILL ERROR:", error);
+    console.error("DELETE BILLS ERROR:", error);
 
     res.status(500).json({
       success: false,
