@@ -2183,7 +2183,7 @@ function Billing({ stock, setStock, goBack }) {
 
 try {
   const response = await fetch(
-    "http://localhost:5000/api/bills",
+   `${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/bills`,
     {
       method: "POST",
       headers: {
@@ -2373,7 +2373,7 @@ if (!backendId) {
   continue;
 }
     const response = await fetch(
-     `http://localhost:5000/api/stock/${backendId}`,
+    `${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/stock/${backendId}`,
       {
         method: "PUT",
         headers: {
