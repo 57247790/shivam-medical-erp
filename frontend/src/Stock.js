@@ -1,210 +1,284 @@
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 function Stock({ stock, setStock, goBack }) {
   const [search, setSearch] = useState("");
-  const [selectedStock, setSelectedStock] = useState(null);
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // =====================================================
-  // BACKEND API URL
-  // ONLINE RENDER BACKEND
-  // =====================================================
-
+  // =========================================================
+  // ONLINE BACKEND URL
+  // =========================================================
   const API_URL =
     process.env.REACT_APP_API_URL ||
     "https://shivam-medical-erp.onrender.com";
 
-  // =====================================================
+  // =========================================================
   // LOAD STOCK FROM BACKEND
-  // =====================================================
-
+  // =========================================================
   useEffect(() => {
     let mounted = true;
 
-    const loadBackendStock = async () => {
+    const loadStock = async () => {
       try {
-        console.log(
-          "🌐 STOCK API URL:",
-          `${API_URL}/api/stock`
-        );
+        setLoading(true);
 
-        const response = await fetch(
-          `${API_URL}/api/stock`
-        );
-
-        console.log(
-          "🌐 STOCK RESPONSE STATUS:",
-          response.status
-        );
+        const response = await fetch(`${API_URL}/api/stock`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
 
         if (!response.ok) {
           throw new Error(
-            `Backend stock load failed: ${response.status}`
+            `Stock API Error: ${response.status} ${response.statusText}`
           );
         }
 
         const result = await response.json();
 
-        console.log(
-          "📦 BACKEND STOCK RESULT:",
-          result
-        );
+        console.log("📦 STOCK API RESULT:", result);
 
-        if (
-          mounted &&
-          result.success &&
+        // =====================================================
+        // API CAN RETURN:
+        // 1. Direct array
+        // 2. { success: true, stock: [...] }
+        // =====================================================
+
+        let backendStock = null;
+
+        if (Array.isArray(result)) {
+          backendStock = result;
+        } else if (
+          result &&
           Array.isArray(result.stock)
         ) {
-          setStock(result.stock);
+          backendStock = result.stock;
+        }
+
+        if (mounted && Array.isArray(backendStock)) {
+          console.log(
+            "✅ BACKEND STOCK LOADED:",
+            backendStock.length,
+            backendStock
+          );
+
+          setStock(backendStock);
 
           localStorage.setItem(
             "stock",
-            JSON.stringify(result.stock)
-          );
-
-          console.log(
-            "✅ STOCK LOADED FROM BACKEND:",
-            result.stock
+            JSON.stringify(backendStock)
           );
         } else {
-          console.error(
-            "❌ BACKEND STOCK DATA INVALID:",
+          console.warn(
+            "⚠️ STOCK API RESPONSE FORMAT NOT RECOGNIZED:",
             result
           );
         }
       } catch (error) {
         console.error(
-          "❌ BACKEND STOCK LOAD ERROR:",
+          "❌ STOCK LOAD ERROR:",
           error
         );
 
-        // Backend fail होने पर existing localStorage stock रहने दें
+        // Backend fail होने पर localStorage stock रहने दें
+        try {
+          const localStock = JSON.parse(
+            localStorage.getItem("stock") || "[]"
+          );
+
+          if (
+            mounted &&
+            Array.isArray(localStock)
+          ) {
+            setStock(localStock);
+          }
+        } catch (localError) {
+          console.error(
+            "❌ LOCAL STOCK ERROR:",
+            localError
+          );
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
-    loadBackendStock();
+    loadStock();
 
     return () => {
       mounted = false;
     };
   }, [API_URL, setStock]);
 
-  // =====================================================
-  // CURRENT STOCK
-  // =====================================================
+  // =========================================================
+  // NORMALIZE STOCK
+  // =========================================================
+  const safeStock = Array.isArray(stock)
+    ? stock
+    : [];
 
-  const currentStock = useMemo(
-    () => (Array.isArray(stock) ? stock : []),
-    [stock]
-  );
+  // =========================================================
+  // SEARCH
+  // =========================================================
+  const filteredStock = useMemo(() => {
+    const text = search
+      .trim()
+      .toLowerCase();
 
-  // =====================================================
-  // SAFE NUMBER
-  // =====================================================
+    if (!text) {
+      return safeStock;
+    }
 
-  const getNumber = (value) => {
-    const num = Number(value);
+    return safeStock.filter((item) => {
+      const medicine = String(
+        item.medicine || ""
+      ).toLowerCase();
 
-    return Number.isFinite(num) ? num : 0;
+      const company = String(
+        item.company || ""
+      ).toLowerCase();
+
+      const batch = String(
+        item.batch || ""
+      ).toLowerCase();
+
+      const barcode = String(
+        item.barcode || ""
+      ).toLowerCase();
+
+      const supplier = String(
+        item.supplier || ""
+      ).toLowerCase();
+
+      return (
+        medicine.includes(text) ||
+        company.includes(text) ||
+        batch.includes(text) ||
+        barcode.includes(text) ||
+        supplier.includes(text)
+      );
+    });
+  }, [safeStock, search]);
+
+  // =========================================================
+  // TOTAL STOCK
+  // =========================================================
+  const totalQuantity = useMemo(() => {
+    return safeStock.reduce(
+      (sum, item) =>
+        sum +
+        Number(item.quantity || 0),
+      0
+    );
+  }, [safeStock]);
+
+  // =========================================================
+  // TOTAL STOCK VALUE
+  // =========================================================
+  const totalPurchaseValue = useMemo(() => {
+    return safeStock.reduce(
+      (sum, item) =>
+        sum +
+        Number(item.quantity || 0) *
+          Number(
+            item.purchaseRateWithGST ??
+              item.rate ??
+              0
+          ),
+      0
+    );
+  }, [safeStock]);
+
+  // =========================================================
+  // TOTAL MRP VALUE
+  // =========================================================
+  const totalMRPValue = useMemo(() => {
+    return safeStock.reduce(
+      (sum, item) =>
+        sum +
+        Number(item.quantity || 0) *
+          Number(item.mrp || 0),
+      0
+    );
+  }, [safeStock]);
+
+  // =========================================================
+  // DELETE STOCK
+  // =========================================================
+  const deleteStock = async (id) => {
+    if (!id) {
+      alert("Stock ID नहीं मिला");
+      return;
+    }
+
+    const ok = window.confirm(
+      "क्या आप इस stock item को delete करना चाहते हैं?"
+    );
+
+    if (!ok) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/stock/${id}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Delete failed: ${response.status}`
+        );
+      }
+
+      const updatedStock = safeStock.filter(
+        (item) =>
+          String(item.id) !== String(id)
+      );
+
+      setStock(updatedStock);
+
+      localStorage.setItem(
+        "stock",
+        JSON.stringify(updatedStock)
+      );
+
+      window.dispatchEvent(
+        new Event("stockUpdated")
+      );
+
+      setSelectedItem(null);
+
+      alert("Stock delete हो गया");
+    } catch (error) {
+      console.error(
+        "❌ DELETE STOCK ERROR:",
+        error
+      );
+
+      alert(
+        "Stock delete नहीं हुआ। Backend connection check करें।"
+      );
+    }
   };
 
-  // =====================================================
-  // PURCHASE RATE
-  // =====================================================
-
-  const getPurchaseRate = (item) => {
-    if (!item) return 0;
-
-    if (
-      item.purchaseRate !== undefined &&
-      item.purchaseRate !== null &&
-      item.purchaseRate !== ""
-    ) {
-      return getNumber(item.purchaseRate);
-    }
-
-    if (
-      item.purchase_rate !== undefined &&
-      item.purchase_rate !== null &&
-      item.purchase_rate !== ""
-    ) {
-      return getNumber(item.purchase_rate);
-    }
-
-    if (
-      item.rate !== undefined &&
-      item.rate !== null &&
-      item.rate !== ""
-    ) {
-      return getNumber(item.rate);
-    }
-
-    return 0;
-  };
-
-  // =====================================================
-  // SALE RATE
-  // =====================================================
-
-  const getSaleRate = (item) => {
-    if (!item) return 0;
-
-    if (
-      item.saleRate !== undefined &&
-      item.saleRate !== null &&
-      item.saleRate !== ""
-    ) {
-      return getNumber(item.saleRate);
-    }
-
-    if (
-      item.sale_rate !== undefined &&
-      item.sale_rate !== null &&
-      item.sale_rate !== ""
-    ) {
-      return getNumber(item.sale_rate);
-    }
-
-    return 0;
-  };
-
-  // =====================================================
-  // MRP
-  // =====================================================
-
-  const getMRP = (item) => {
-    if (!item) return 0;
-
-    if (
-      item.mrp !== undefined &&
-      item.mrp !== null &&
-      item.mrp !== ""
-    ) {
-      return getNumber(item.mrp);
-    }
-
-    if (
-      item.MRP !== undefined &&
-      item.MRP !== null &&
-      item.MRP !== ""
-    ) {
-      return getNumber(item.MRP);
-    }
-
-    return 0;
-  };
-
-  // =====================================================
-  // EXPIRY INFO
-  // =====================================================
-
-  const expiryInfo = (expiry) => {
+  // =========================================================
+  // EXPIRY STATUS
+  // =========================================================
+  const getExpiryStatus = (expiry) => {
     if (!expiry) {
       return {
-        text: "N/A",
-        color: "#777",
-        days: null,
-        status: "No Expiry",
+        text: "-",
+        className: "",
       };
     }
 
@@ -213,9 +287,7 @@ function Stock({ stock, setStock, goBack }) {
     if (Number.isNaN(expiryDate.getTime())) {
       return {
         text: expiry,
-        color: "#777",
-        days: null,
-        status: "Invalid Date",
+        className: "",
       };
     }
 
@@ -234,1734 +306,931 @@ function Stock({ stock, setStock, goBack }) {
 
     if (days < 0) {
       return {
-        text: `🔴 Expired ${Math.abs(days)}d`,
-        color: "#d32f2f",
-        days,
-        status: "Expired",
+        text: "EXPIRED",
+        className: "expired",
       };
     }
 
     if (days <= 30) {
       return {
-        text: `🔴 ${expiry} (${days}d)`,
-        color: "#d32f2f",
-        days,
-        status: "Expiring Soon",
+        text: `${days} दिन`,
+        className: "near-expiry",
       };
     }
 
     return {
       text: expiry,
-      color: "#2e7d32",
-      days,
-      status: "Safe",
+      className: "",
     };
   };
 
-  // =====================================================
-  // SEARCH
-  // =====================================================
-
-  const filteredStock = useMemo(() => {
-    const text = search.trim().toLowerCase();
-
-    if (!text) {
-      return currentStock;
-    }
-
-    return currentStock.filter((item) => {
-      const medicine = String(
-        item.medicine || ""
-      ).toLowerCase();
-
-      const company = String(
-        item.company || ""
-      ).toLowerCase();
-
-      const barcode = String(
-        item.barcode || ""
-      ).toLowerCase();
-
-      const batch = String(
-        item.batch || ""
-      ).toLowerCase();
-
-      const supplier = String(
-        item.supplier ||
-          item.supplierName ||
-          ""
-      ).toLowerCase();
-
-      return (
-        medicine.includes(text) ||
-        company.includes(text) ||
-        barcode.includes(text) ||
-        batch.includes(text) ||
-        supplier.includes(text)
-      );
-    });
-  }, [currentStock, search]);
-
-  // =====================================================
-  // DELETE MEDICINE
-  // =====================================================
-
-  const deleteMedicine = async (item) => {
-    if (!item) {
-      return;
-    }
-
-    const confirmDelete = window.confirm(
-      "⚠️ क्या आप इस Stock Item को Delete करना चाहते हैं?\n\n" +
-        `Medicine: ${item.medicine || "-"}\n` +
-        `Batch: ${item.batch || "-"}\n` +
-        `Barcode: ${item.barcode || "-"}\n` +
-        `Quantity: ${item.quantity || 0}`
-    );
-
-    if (!confirmDelete) {
-      return;
-    }
-
+  // =========================================================
+  // REFRESH
+  // =========================================================
+  const refreshStock = async () => {
     try {
-      // =================================================
-      // BACKEND DELETE
-      // =================================================
+      setLoading(true);
 
-      if (
-        item.id !== undefined &&
-        item.id !== null &&
-        Number.isInteger(Number(item.id))
-      ) {
-        const response = await fetch(
-          `${API_URL}/api/stock/${item.id}`,
-          {
-            method: "DELETE",
-          }
-        );
-
-        if (!response.ok) {
-          let errorMessage =
-            "Backend stock delete failed";
-
-          try {
-            const errorResult =
-              await response.json();
-
-            if (errorResult.message) {
-              errorMessage =
-                errorResult.message;
-            }
-          } catch {
-            // Ignore JSON parsing error
-          }
-
-          throw new Error(errorMessage);
+      const response = await fetch(
+        `${API_URL}/api/stock`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
         }
+      );
 
-        console.log(
-          "✅ STOCK DELETED FROM BACKEND:",
-          item.id
+      if (!response.ok) {
+        throw new Error(
+          `Refresh failed: ${response.status}`
         );
       }
 
-      // =================================================
-      // LOCAL STOCK UPDATE
-      // =================================================
+      const result = await response.json();
 
-      const updatedStock =
-        currentStock.filter(
-          (stockItem) => {
-            if (
-              item.id !== undefined &&
-              item.id !== null
-            ) {
-              return (
-                stockItem.id !==
-                item.id
-              );
-            }
+      console.log(
+        "🔄 REFRESH STOCK RESULT:",
+        result
+      );
 
-            if (item.barcode) {
-              return (
-                String(
-                  stockItem.barcode || ""
-                ).trim() !==
-                String(
-                  item.barcode || ""
-                ).trim()
-              );
-            }
+      let backendStock = null;
 
-            return (
-              stockItem !== item
-            );
-          }
+      if (Array.isArray(result)) {
+        backendStock = result;
+      } else if (
+        result &&
+        Array.isArray(result.stock)
+      ) {
+        backendStock = result.stock;
+      }
+
+      if (Array.isArray(backendStock)) {
+        setStock(backendStock);
+
+        localStorage.setItem(
+          "stock",
+          JSON.stringify(backendStock)
         );
 
-      setStock(updatedStock);
-
-      localStorage.setItem(
-        "stock",
-        JSON.stringify(updatedStock)
-      );
-
-      setSelectedStock(null);
-
-      alert(
-        "✅ Stock Item Delete हो गया"
-      );
+        window.dispatchEvent(
+          new Event("stockUpdated")
+        );
+      }
     } catch (error) {
       console.error(
-        "❌ BACKEND STOCK DELETE ERROR:",
+        "❌ REFRESH STOCK ERROR:",
         error
       );
 
       alert(
-        "❌ Stock Delete नहीं हुआ.\n\n" +
-          "Backend/database connection check करें."
+        "Stock refresh नहीं हो पाया।"
       );
+    } finally {
+      setLoading(false);
     }
   };
 
-  // =====================================================
-  // TOTAL QUANTITY
-  // =====================================================
-
-  const totalQuantity =
-    filteredStock.reduce(
-      (sum, item) =>
-        sum + getNumber(item.quantity),
-      0
-    );
-
-  // =====================================================
-  // TOTAL PURCHASE VALUE
-  // =====================================================
-
-  const totalPurchaseValue =
-    filteredStock.reduce(
-      (sum, item) =>
-        sum +
-        getNumber(item.quantity) *
-          getPurchaseRate(item),
-      0
-    );
-
-  // =====================================================
-  // TOTAL SALE VALUE
-  // =====================================================
-
-  const totalSaleValue =
-    filteredStock.reduce(
-      (sum, item) =>
-        sum +
-        getNumber(item.quantity) *
-          getSaleRate(item),
-      0
-    );
-
-  // =====================================================
-  // EXPIRED COUNT
-  // =====================================================
-
-  const expiredCount =
-    filteredStock.filter((item) => {
-      if (!item.expiry) {
-        return false;
-      }
-
-      const expiryDate = new Date(
-        item.expiry
-      );
-
-      if (
-        Number.isNaN(
-          expiryDate.getTime()
-        )
-      ) {
-        return false;
-      }
-
-      const today = new Date();
-
-      today.setHours(0, 0, 0, 0);
-      expiryDate.setHours(0, 0, 0, 0);
-
-      return expiryDate < today;
-    }).length;
-
-  // =====================================================
-  // EXPIRING SOON COUNT
-  // =====================================================
-
-  const expiringSoonCount =
-    filteredStock.filter((item) => {
-      if (!item.expiry) {
-        return false;
-      }
-
-      const expiryDate = new Date(
-        item.expiry
-      );
-
-      if (
-        Number.isNaN(
-          expiryDate.getTime()
-        )
-      ) {
-        return false;
-      }
-
-      const today = new Date();
-
-      today.setHours(0, 0, 0, 0);
-      expiryDate.setHours(0, 0, 0, 0);
-
-      const days = Math.ceil(
-        (
-          expiryDate.getTime() -
-          today.getTime()
-        ) /
-          (1000 * 60 * 60 * 24)
-      );
-
-      return (
-        days >= 0 &&
-        days <= 30
-      );
-    }).length;
-
-  // =====================================================
-  // LOW STOCK COUNT
-  // =====================================================
-
-  const lowStockCount =
-    filteredStock.filter((item) => {
-      const qty = getNumber(
-        item.quantity
-      );
-
-      return (
-        qty > 0 &&
-        qty <= 10
-      );
-    }).length;
-
-  // =====================================================
-  // STOCK DETAILS PAGE
-  // =====================================================
-
-  if (selectedStock) {
-    const item = selectedStock;
-
-    const qty = getNumber(
-      item.quantity
-    );
-
-    const purchaseRate =
-      getPurchaseRate(item);
-
-    const saleRate =
-      getSaleRate(item);
-
-    const mrp =
-      getMRP(item);
-
-    const purchaseAmount =
-      getNumber(
-        item.purchaseAmount
-      ) ||
-      qty * purchaseRate;
-
-    const saleValue =
-      qty * saleRate;
-
-    const expiry =
-      expiryInfo(
-        item.expiry ||
-          item.expiryDate ||
-          item.expiry_date
-      );
-
-    const gstAmount =
-      getNumber(
-        item.gstAmountPerItem
-      );
-
-    const gstType =
-      item.gstType ||
-      "0";
-
-    return (
+  // =========================================================
+  // UI
+  // =========================================================
+  return (
+    <div
+      style={{
+        padding: "20px",
+        maxWidth: "1400px",
+        margin: "0 auto",
+        fontFamily:
+          "Arial, sans-serif",
+      }}
+    >
+      {/* HEADER */}
       <div
         style={{
-          minHeight: "100vh",
-          padding: "20px",
-          background: "#f2f5f9",
-          fontFamily:
-            "Arial, sans-serif",
-          boxSizing: "border-box",
+          display: "flex",
+          justifyContent:
+            "space-between",
+          alignItems: "center",
+          gap: "10px",
+          flexWrap: "wrap",
+          marginBottom: "20px",
         }}
       >
-        {/* HEADER */}
-
-        <div
-          style={{
-            background:
-              "linear-gradient(135deg,#1976d2,#42a5f5)",
-            color: "white",
-            padding: "20px",
-            borderRadius: "12px",
-            marginBottom: "15px",
-          }}
-        >
-          <h1
+        <div>
+          <h2
             style={{
               margin: 0,
             }}
           >
-            📦 Stock Details
-          </h1>
+            📦 Stock
+          </h2>
 
-          <p
+          <div
             style={{
-              margin:
-                "6px 0 0 0",
+              fontSize: "13px",
+              color: "#666",
+              marginTop: "5px",
             }}
           >
-            Complete Medicine Stock
-            Information
-          </p>
+            Online Stock
+          </div>
         </div>
-
-        {/* BACK */}
-
-        <button
-          type="button"
-          onClick={() =>
-            setSelectedStock(null)
-          }
-          style={{
-            padding:
-              "11px 18px",
-            background:
-              "#555",
-            color:
-              "white",
-            border:
-              "none",
-            borderRadius:
-              "7px",
-            cursor:
-              "pointer",
-            fontSize:
-              "15px",
-            fontWeight:
-              "bold",
-            marginBottom:
-              "15px",
-          }}
-        >
-          ⬅️ Back to Stock
-        </button>
-
-        {/* MAIN CARD */}
 
         <div
           style={{
-            maxWidth:
-              "1000px",
-            margin:
-              "0 auto",
-            background:
-              "white",
-            padding:
-              "20px",
-            borderRadius:
-              "12px",
-            boxShadow:
-              "0 3px 12px rgba(0,0,0,0.08)",
+            display: "flex",
+            gap: "8px",
+            flexWrap: "wrap",
           }}
         >
-          {/* MEDICINE TITLE */}
-
-          <div
+          <button
+            onClick={refreshStock}
+            disabled={loading}
             style={{
               padding:
-                "18px",
-              background:
-                "#e3f2fd",
-              borderRadius:
-                "10px",
-              marginBottom:
-                "20px",
+                "9px 14px",
+              cursor: loading
+                ? "not-allowed"
+                : "pointer",
             }}
           >
-            <div
-              style={{
-                fontSize:
-                  "12px",
-                color:
-                  "#666",
-                marginBottom:
-                  "5px",
-              }}
-            >
-              MEDICINE
-            </div>
+            🔄 Refresh
+          </button>
 
-            <h2
-              style={{
-                margin:
-                  0,
-                color:
-                  "#1565c0",
-              }}
-            >
-              💊{" "}
-              {item.medicine ||
-                "-"}
-            </h2>
-
-            <div
-              style={{
-                marginTop:
-                  "7px",
-                color:
-                  "#555",
-              }}
-            >
-              {item.company ||
-                "-"}
-            </div>
-          </div>
-
-          {/* DETAILS GRID */}
-
-          <div
-            style={{
-              display:
-                "grid",
-              gridTemplateColumns:
-                "repeat(auto-fit,minmax(220px,1fr))",
-              gap:
-                "12px",
-            }}
-          >
-            <InfoBox
-              title="🏢 Company"
-              value={
-                item.company ||
-                "-"
-              }
-            />
-
-            <InfoBox
-              title="🔢 Batch"
-              value={
-                item.batch ||
-                "-"
-              }
-            />
-
-            <InfoBox
-              title="📷 Barcode"
-              value={
-                item.barcode ||
-                "-"
-              }
-            />
-
-            <InfoBox
-              title="🏭 Supplier"
-              value={
-                item.supplier ||
-                  item.supplierName ||
-                  "-"
-              }
-            />
-
-            <InfoBox
-              title="📱 Supplier Mobile"
-              value={
-                item.supplierMobile ||
-                "-"
-              }
-            />
-
-            <InfoBox
-              title="📦 Quantity"
-              value={
-                qty
-              }
-            />
-
-            <InfoBox
-              title="💰 Purchase Rate"
-              value={
-                `₹${purchaseRate.toFixed(
-                  2
-                )}`
-              }
-            />
-
-            <InfoBox
-              title="💵 Sale Rate"
-              value={
-                `₹${saleRate.toFixed(
-                  2
-                )}`
-              }
-            />
-
-            <InfoBox
-              title="🏷️ MRP"
-              value={
-                `₹${mrp.toFixed(
-                  2
-                )}`
-              }
-            />
-
-            <InfoBox
-              title="🧾 GST"
-              value={
-                gstType
-              }
-            />
-
-            <InfoBox
-              title="🧾 GST / Adjustment Per Item"
-              value={
-                `₹${gstAmount.toFixed(
-                  2
-                )}`
-              }
-            />
-
-            <InfoBox
-              title="💰 Purchase Amount"
-              value={
-                `₹${purchaseAmount.toFixed(
-                  2
-                )}`
-              }
-            />
-
-            <InfoBox
-              title="💵 Current Sale Value"
-              value={
-                `₹${saleValue.toFixed(
-                  2
-                )}`
-              }
-            />
-
-            <InfoBox
-              title="📅 Purchase Date"
-              value={
-                item.purchaseDate ||
-                item.date ||
-                "-"
-              }
-            />
-
-            <InfoBox
-              title="⏰ Purchase Time"
-              value={
-                item.time ||
-                "-"
-              }
-            />
-
-            <InfoBox
-              title="📅 Expiry Date"
-              value={
-                item.expiry ||
-                item.expiryDate ||
-                item.expiry_date ||
-                "-"
-              }
-            />
-
-            <InfoBox
-              title="⏳ Expiry Status"
-              value={
-                expiry.status
-              }
-              valueColor={
-                expiry.color
-              }
-            />
-          </div>
-
-          {/* STOCK STATUS */}
-
-          <div
-            style={{
-              marginTop:
-                "20px",
-              padding:
-                "18px",
-              borderRadius:
-                "10px",
-              background:
-                qty <= 0
-                  ? "#ffebee"
-                  : qty <= 10
-                  ? "#fff3e0"
-                  : "#e8f5e9",
-              border:
-                "1px solid #ddd",
-            }}
-          >
-            <h3
-              style={{
-                margin:
-                  "0 0 8px 0",
-              }}
-            >
-              📦 Stock Status
-            </h3>
-
-            <div
-              style={{
-                fontSize:
-                  "18px",
-                fontWeight:
-                  "bold",
-                color:
-                  qty <= 0
-                    ? "#d32f2f"
-                    : qty <= 10
-                    ? "#ef6c00"
-                    : "#2e7d32",
-              }}
-            >
-              {qty <= 0
-                ? "🔴 OUT OF STOCK"
-                : qty <= 10
-                ? "🟠 LOW STOCK"
-                : "🟢 STOCK AVAILABLE"}
-            </div>
-
-            <div
-              style={{
-                marginTop:
-                  "6px",
-              }}
-            >
-              Available Quantity:
-              {" "}
-              <strong>
-                {qty}
-              </strong>
-            </div>
-          </div>
-
-          {/* EXPIRY */}
-
-          <div
-            style={{
-              marginTop:
-                "15px",
-              padding:
-                "18px",
-              background:
-                "#fafafa",
-              borderRadius:
-                "10px",
-              border:
-                "1px solid #ddd",
-            }}
-          >
-            <h3
-              style={{
-                margin:
-                  "0 0 8px 0",
-              }}
-            >
-              📅 Expiry Information
-            </h3>
-
-            <div
-              style={{
-                color:
-                  expiry.color,
-                fontWeight:
-                  "bold",
-                fontSize:
-                  "16px",
-              }}
-            >
-              {expiry.text}
-            </div>
-          </div>
-
-          {/* ACTIONS */}
-
-          <div
-            style={{
-              display:
-                "flex",
-              gap:
-                "10px",
-              flexWrap:
-                "wrap",
-              marginTop:
-                "20px",
-            }}
-          >
+          {goBack && (
             <button
-              type="button"
-              onClick={() =>
-                setSelectedStock(
-                  null
-                )
-              }
+              onClick={goBack}
               style={{
-                flex:
-                  "1 1 200px",
                 padding:
-                  "13px",
-                background:
-                  "#1976d2",
-                color:
-                  "white",
-                border:
-                  "none",
-                borderRadius:
-                  "8px",
+                  "9px 14px",
                 cursor:
                   "pointer",
-                fontWeight:
-                  "bold",
               }}
             >
-              ⬅️ Back to Stock
+              ← Back
             </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                deleteMedicine(
-                  item
-                )
-              }
-              style={{
-                flex:
-                  "1 1 200px",
-                padding:
-                  "13px",
-                background:
-                  "#d32f2f",
-                color:
-                  "white",
-                border:
-                  "none",
-                borderRadius:
-                  "8px",
-                cursor:
-                  "pointer",
-                fontWeight:
-                  "bold",
-              }}
-            >
-              🗑️ Delete Stock
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // =====================================================
-  // MAIN STOCK PAGE
-  // =====================================================
-
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        padding: "20px",
-        background: "#f2f5f9",
-        fontFamily:
-          "Arial, sans-serif",
-        boxSizing:
-          "border-box",
-      }}
-    >
-      {/* HEADER */}
-
-      <div
-        style={{
-          background:
-            "linear-gradient(135deg,#1976d2,#42a5f5)",
-          color: "white",
-          padding: "20px",
-          borderRadius: "12px",
-          marginBottom: "15px",
-        }}
-      >
-        <div
-          style={{
-            display:
-              "flex",
-            justifyContent:
-              "space-between",
-            alignItems:
-              "center",
-            gap:
-              "10px",
-            flexWrap:
-              "wrap",
-          }}
-        >
-          <div>
-            <h1
-              style={{
-                margin: 0,
-              }}
-            >
-              📦 Stock
-            </h1>
-
-            <p
-              style={{
-                margin:
-                  "5px 0 0 0",
-                fontSize:
-                  "13px",
-              }}
-            >
-              Medicine Stock
-              Management
-            </p>
-          </div>
-
-          <div
-            style={{
-              background:
-                "rgba(255,255,255,0.18)",
-              padding:
-                "10px 15px",
-              borderRadius:
-                "8px",
-              fontWeight:
-                "bold",
-            }}
-          >
-            Items:{" "}
-            {filteredStock.length}
-          </div>
+          )}
         </div>
       </div>
 
       {/* SEARCH */}
-
       <div
         style={{
-          background:
-            "white",
-          padding:
-            "15px",
-          borderRadius:
-            "10px",
-          marginBottom:
-            "15px",
-          boxShadow:
-            "0 2px 8px rgba(0,0,0,0.06)",
+          marginBottom: "15px",
         }}
       >
-        <h3
-          style={{
-            margin:
-              "0 0 10px 0",
-          }}
-        >
-          🔎 Stock Search
-        </h3>
-
         <input
           type="text"
-          placeholder="Medicine / Company / Barcode / Batch / Supplier"
           value={search}
           onChange={(e) =>
             setSearch(
               e.target.value
             )
           }
+          placeholder="Medicine / Company / Batch / Barcode / Supplier search..."
           style={{
-            width:
-              "100%",
+            width: "100%",
+            maxWidth: "600px",
+            padding: "11px",
+            fontSize: "15px",
+            border:
+              "1px solid #ccc",
+            borderRadius: "6px",
             boxSizing:
               "border-box",
-            padding:
-              "12px",
-            fontSize:
-              "15px",
-            border:
-              "2px solid #1976d2",
-            borderRadius:
-              "7px",
-            outline:
-              "none",
           }}
-          autoComplete="off"
         />
-
-        {search && (
-          <div
-            style={{
-              marginTop:
-                "8px",
-              fontSize:
-                "12px",
-              color:
-                "#555",
-            }}
-          >
-            🔍{" "}
-            {
-              filteredStock.length
-            }{" "}
-            item(s) found
-          </div>
-        )}
       </div>
 
       {/* SUMMARY */}
-
       <div
         style={{
-          display:
-            "grid",
+          display: "grid",
           gridTemplateColumns:
-            "repeat(auto-fit,minmax(150px,1fr))",
-          gap:
-            "10px",
-          marginBottom:
-            "15px",
+            "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: "12px",
+          marginBottom: "20px",
         }}
       >
-        <SummaryBox
-          title="Total Items"
-          value={
-            filteredStock.length
-          }
-          color="#1976d2"
-        />
-
-        <SummaryBox
-          title="Total Quantity"
-          value={
-            totalQuantity
-          }
-          color="#2e7d32"
-        />
-
-        <SummaryBox
-          title="Purchase Value"
-          value={`₹${totalPurchaseValue.toFixed(
-            2
-          )}`}
-          color="#ef6c00"
-        />
-
-        <SummaryBox
-          title="Sale Value"
-          value={`₹${totalSaleValue.toFixed(
-            2
-          )}`}
-          color="#6a1b9a"
-        />
-
-        <SummaryBox
-          title="Low Stock"
-          value={
-            lowStockCount
-          }
-          color="#ef6c00"
-        />
-
-        <SummaryBox
-          title="Expiry ≤ 30 Days"
-          value={
-            expiringSoonCount
-          }
-          color="#d32f2f"
-        />
-
-        <SummaryBox
-          title="Expired"
-          value={
-            expiredCount
-          }
-          color="#b71c1c"
-        />
-      </div>
-
-      {/* CLICK INFO */}
-
-      {filteredStock.length > 0 && (
         <div
           style={{
-            background:
-              "#e3f2fd",
+            padding: "15px",
             border:
-              "1px solid #90caf9",
-            color:
-              "#1565c0",
-            padding:
-              "10px 14px",
-            borderRadius:
-              "8px",
-            marginBottom:
-              "12px",
-            fontSize:
-              "13px",
-            fontWeight:
-              "bold",
+              "1px solid #ddd",
+            borderRadius: "8px",
+            background:
+              "#f8f8f8",
           }}
         >
-          👆 किसी भी Stock Row पर Click
-          करें → पूरी Medicine Details
-          खुलेंगी।
+          <div
+            style={{
+              fontSize: "13px",
+              color: "#666",
+            }}
+          >
+            Total Items
+          </div>
+
+          <strong
+            style={{
+              fontSize: "22px",
+            }}
+          >
+            {safeStock.length}
+          </strong>
+        </div>
+
+        <div
+          style={{
+            padding: "15px",
+            border:
+              "1px solid #ddd",
+            borderRadius: "8px",
+            background:
+              "#f8f8f8",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "13px",
+              color: "#666",
+            }}
+          >
+            Total Quantity
+          </div>
+
+          <strong
+            style={{
+              fontSize: "22px",
+            }}
+          >
+            {totalQuantity}
+          </strong>
+        </div>
+
+        <div
+          style={{
+            padding: "15px",
+            border:
+              "1px solid #ddd",
+            borderRadius: "8px",
+            background:
+              "#f8f8f8",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "13px",
+              color: "#666",
+            }}
+          >
+            Purchase Value
+          </div>
+
+          <strong
+            style={{
+              fontSize: "22px",
+            }}
+          >
+            ₹
+            {totalPurchaseValue.toFixed(
+              2
+            )}
+          </strong>
+        </div>
+
+        <div
+          style={{
+            padding: "15px",
+            border:
+              "1px solid #ddd",
+            borderRadius: "8px",
+            background:
+              "#f8f8f8",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "13px",
+              color: "#666",
+            }}
+          >
+            MRP Value
+          </div>
+
+          <strong
+            style={{
+              fontSize: "22px",
+            }}
+          >
+            ₹
+            {totalMRPValue.toFixed(
+              2
+            )}
+          </strong>
+        </div>
+      </div>
+
+      {/* LOADING */}
+      {loading && (
+        <div
+          style={{
+            padding: "15px",
+            textAlign: "center",
+          }}
+        >
+          ⏳ Stock loading...
         </div>
       )}
 
-      {/* STOCK TABLE */}
-
-      <div
-        style={{
-          background:
-            "white",
-          padding:
-            "15px",
-          borderRadius:
-            "10px",
-          boxShadow:
-            "0 2px 8px rgba(0,0,0,0.06)",
-          overflowX:
-            "auto",
-        }}
-      >
-        <h3
-          style={{
-            margin:
-              "0 0 10px 0",
-          }}
-        >
-          📋 Current Stock
-        </h3>
-
-        {filteredStock.length ===
-        0 ? (
+      {/* EMPTY */}
+      {!loading &&
+        filteredStock.length ===
+          0 && (
           <div
             style={{
-              padding:
-                "30px",
-              textAlign:
-                "center",
-              color:
-                "#777",
+              padding: "30px",
+              textAlign: "center",
+              border:
+                "1px solid #ddd",
+              borderRadius: "8px",
             }}
           >
-            {search
-              ? "❌ कोई Stock Item नहीं मिला"
-              : "📦 अभी Stock खाली है"}
+            <h3>
+              Stock नहीं मिला
+            </h3>
+
+            <p>
+              Search बदलकर देखें
+              या Refresh दबाएँ।
+            </p>
           </div>
-        ) : (
-          <table
+        )}
+
+      {/* TABLE */}
+      {!loading &&
+        filteredStock.length >
+          0 && (
+          <div
             style={{
-              width:
-                "100%",
-              minWidth:
-                "1300px",
-              borderCollapse:
-                "collapse",
-              fontSize:
-                "12px",
+              overflowX:
+                "auto",
+              border:
+                "1px solid #ddd",
+              borderRadius: "8px",
             }}
           >
-            <thead>
-              <tr>
-                <th
-                  style={thStyle}
+            <table
+              style={{
+                width: "100%",
+                borderCollapse:
+                  "collapse",
+                minWidth:
+                  "1100px",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background:
+                      "#f1f1f1",
+                  }}
                 >
-                  #
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    #
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  Medicine
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    Medicine
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  Company
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    Company
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  Batch
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    Batch
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  Barcode
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    Barcode
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  Supplier
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    Supplier
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  Qty
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    Qty
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  Purchase Rate
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    Purchase Rate
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  Sale Rate
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    MRP
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  MRP
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    Sale Rate
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  Expiry
-                </th>
+                  <th
+                    style={thStyle}
+                  >
+                    Expiry
+                  </th>
 
-                <th
-                  style={thStyle}
-                >
-                  Action
-                </th>
-              </tr>
-            </thead>
+                  <th
+                    style={thStyle}
+                  >
+                    Action
+                  </th>
+                </tr>
+              </thead>
 
-            <tbody>
-              {filteredStock.map(
-                (
-                  item,
-                  index
-                ) => {
-                  const exp =
-                    expiryInfo(
-                      item.expiry ||
-                        item.expiryDate ||
-                        item.expiry_date
-                    );
+              <tbody>
+                {filteredStock.map(
+                  (item, index) => {
+                    const expiry =
+                      getExpiryStatus(
+                        item.expiry
+                      );
 
-                  const qty =
-                    getNumber(
-                      item.quantity
-                    );
-
-                  const purchaseRate =
-                    getPurchaseRate(
-                      item
-                    );
-
-                  const saleRate =
-                    getSaleRate(
-                      item
-                    );
-
-                  const mrp =
-                    getMRP(
-                      item
-                    );
-
-                  const lowStock =
-                    qty > 0 &&
-                    qty <= 10;
-
-                  return (
-                    <tr
-                      key={
-                        item.id ||
-                        `${item.barcode}-${item.batch}-${index}`
-                      }
-                      onClick={() =>
-                        setSelectedStock(
-                          item
-                        )
-                      }
-                      title="Click करके पूरी Stock Details देखें"
-                      style={{
-                        cursor:
-                          "pointer",
-                        background:
-                          "white",
-                        transition:
-                          "background 0.15s",
-                      }}
-                      onMouseEnter={(
-                        e
-                      ) => {
-                        e.currentTarget.style.background =
-                          "#f1f8ff";
-                      }}
-                      onMouseLeave={(
-                        e
-                      ) => {
-                        e.currentTarget.style.background =
-                          "white";
-                      }}
-                    >
-                      {/* # */}
-
-                      <td
-                        style={
-                          tdStyle
+                    return (
+                      <tr
+                        key={
+                          item.id ||
+                          `${item.medicine}-${item.batch}-${index}`
                         }
-                      >
-                        {index +
-                          1}
-                      </td>
-
-                      {/* MEDICINE */}
-
-                      <td
                         style={{
-                          ...tdStyle,
-                          fontWeight:
-                            "bold",
-                          color:
-                            "#1565c0",
+                          borderTop:
+                            "1px solid #ddd",
                         }}
                       >
-                        💊{" "}
-                        {item.medicine ||
-                          "-"}
-                      </td>
+                        <td
+                          style={tdStyle}
+                        >
+                          {index +
+                            1}
+                        </td>
 
-                      {/* COMPANY */}
-
-                      <td
-                        style={
-                          tdStyle
-                        }
-                      >
-                        {item.company ||
-                          "-"}
-                      </td>
-
-                      {/* BATCH */}
-
-                      <td
-                        style={
-                          tdStyle
-                        }
-                      >
-                        {item.batch ||
-                          "-"}
-                      </td>
-
-                      {/* BARCODE */}
-
-                      <td
-                        style={{
-                          ...tdStyle,
-                          color:
-                            "#1565c0",
-                          fontWeight:
-                            "bold",
-                        }}
-                      >
-                        {item.barcode ||
-                          "-"}
-                      </td>
-
-                      {/* SUPPLIER */}
-
-                      <td
-                        style={
-                          tdStyle
-                        }
-                      >
-                        <strong>
-                          {item.supplier ||
-                            item.supplierName ||
-                            "-"}
-                        </strong>
-
-                        {item.supplierMobile && (
-                          <div
-                            style={{
-                              fontSize:
-                                "10px",
-                              color:
-                                "#777",
-                              marginTop:
-                                "3px",
-                            }}
-                          >
-                            📱{" "}
-                            {
-                              item.supplierMobile
-                            }
-                          </div>
-                        )}
-                      </td>
-
-                      {/* QUANTITY */}
-
-                      <td
-                        style={{
-                          ...tdStyle,
-                          fontWeight:
-                            "bold",
-                          color:
-                            qty <= 0
-                              ? "#d32f2f"
-                              : lowStock
-                              ? "#ef6c00"
-                              : "#2e7d32",
-                        }}
-                      >
-                        {qty}
-
-                        {qty <=
-                          0 && (
-                          <div
-                            style={{
-                              fontSize:
-                                "10px",
-                              color:
-                                "#d32f2f",
-                            }}
-                          >
-                            OUT
-                          </div>
-                        )}
-
-                        {lowStock && (
-                          <div
-                            style={{
-                              fontSize:
-                                "10px",
-                              color:
-                                "#ef6c00",
-                            }}
-                          >
-                            LOW
-                          </div>
-                        )}
-                      </td>
-
-                      {/* PURCHASE RATE */}
-
-                      <td
-                        style={
-                          tdStyle
-                        }
-                      >
-                        <span
+                        <td
                           style={{
+                            ...tdStyle,
                             fontWeight:
                               "bold",
-                            color:
-                              "#ef6c00",
                           }}
+                        >
+                          {item.medicine ||
+                            "-"}
+                        </td>
+
+                        <td
+                          style={tdStyle}
+                        >
+                          {item.company ||
+                            "-"}
+                        </td>
+
+                        <td
+                          style={tdStyle}
+                        >
+                          {item.batch ||
+                            "-"}
+                        </td>
+
+                        <td
+                          style={tdStyle}
+                        >
+                          {item.barcode ||
+                            "-"}
+                        </td>
+
+                        <td
+                          style={tdStyle}
+                        >
+                          {item.supplier ||
+                            "-"}
+                        </td>
+
+                        <td
+                          style={{
+                            ...tdStyle,
+                            fontWeight:
+                              "bold",
+                          }}
+                        >
+                          {Number(
+                            item.quantity ||
+                              0
+                          )}
+                        </td>
+
+                        <td
+                          style={tdStyle}
                         >
                           ₹
-                          {purchaseRate.toFixed(
+                          {Number(
+                            item.purchaseRateWithGST ??
+                              item.rate ??
+                              0
+                          ).toFixed(
                             2
                           )}
-                        </span>
-                      </td>
+                        </td>
 
-                      {/* SALE RATE */}
+                        <td
+                          style={tdStyle}
+                        >
+                          ₹
+                          {Number(
+                            item.mrp ||
+                              0
+                          ).toFixed(
+                            2
+                          )}
+                        </td>
 
-                      <td
-                        style={{
-                          ...tdStyle,
-                          color:
-                            "#2e7d32",
-                          fontWeight:
-                            "bold",
-                        }}
-                      >
-                        {saleRate >
-                        0
-                          ? `₹${saleRate.toFixed(
-                              2
-                            )}`
-                          : "₹0.00"}
-                      </td>
+                        <td
+                          style={tdStyle}
+                        >
+                          ₹
+                          {Number(
+                            item.saleRate ||
+                              0
+                          ).toFixed(
+                            2
+                          )}
+                        </td>
 
-                      {/* MRP */}
-
-                      <td
-                        style={{
-                          ...tdStyle,
-                          fontWeight:
-                            "bold",
-                          color:
-                            "#1565c0",
-                        }}
-                      >
-                        ₹
-                        {mrp.toFixed(
-                          2
-                        )}
-                      </td>
-
-                      {/* EXPIRY */}
-
-                      <td
-                        style={{
-                          ...tdStyle,
-                          color:
-                            exp.color,
-                          fontWeight:
-                            "bold",
-                        }}
-                      >
-                        {
-                          exp.text
-                        }
-                      </td>
-
-                      {/* ACTION */}
-
-                      <td
-                        style={
-                          tdStyle
-                        }
-                        onClick={(
-                          e
-                        ) =>
-                          e.stopPropagation()
-                        }
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            deleteMedicine(
-                              item
-                            )
-                          }
+                        <td
                           style={{
-                            padding:
-                              "7px 11px",
-                            background:
-                              "#d32f2f",
-                            color:
-                              "white",
-                            border:
-                              "none",
-                            borderRadius:
-                              "5px",
-                            cursor:
-                              "pointer",
+                            ...tdStyle,
                             fontWeight:
-                              "bold",
+                              expiry.className
+                                ? "bold"
+                                : "normal",
                           }}
                         >
-                          🗑️ Delete
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                }
-              )}
-            </tbody>
-          </table>
+                          {expiry.text}
+                        </td>
+
+                        <td
+                          style={
+                            tdStyle
+                          }
+                        >
+                          <div
+                            style={{
+                              display:
+                                "flex",
+                              gap:
+                                "6px",
+                            }}
+                          >
+                            <button
+                              onClick={() =>
+                                setSelectedItem(
+                                  item
+                                )
+                              }
+                              style={{
+                                padding:
+                                  "6px 10px",
+                                cursor:
+                                  "pointer",
+                              }}
+                            >
+                              Details
+                            </button>
+
+                            {item.id && (
+                              <button
+                                onClick={() =>
+                                  deleteStock(
+                                    item.id
+                                  )
+                                }
+                                style={{
+                                  padding:
+                                    "6px 10px",
+                                  cursor:
+                                    "pointer",
+                                }}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
 
-      {/* BACK */}
+      {/* DETAILS */}
+      {selectedItem && (
+        <div
+          style={{
+            position:
+              "fixed",
+            inset: 0,
+            background:
+              "rgba(0,0,0,0.45)",
+            display:
+              "flex",
+            alignItems:
+              "center",
+            justifyContent:
+              "center",
+            padding: "20px",
+            zIndex: 9999,
+          }}
+          onClick={() =>
+            setSelectedItem(
+              null
+            )
+          }
+        >
+          <div
+            style={{
+              background:
+                "#fff",
+              width: "100%",
+              maxWidth:
+                "600px",
+              maxHeight:
+                "90vh",
+              overflowY:
+                "auto",
+              borderRadius:
+                "10px",
+              padding:
+                "20px",
+              boxSizing:
+                "border-box",
+            }}
+            onClick={(e) =>
+              e.stopPropagation()
+            }
+          >
+            <div
+              style={{
+                display:
+                  "flex",
+                justifyContent:
+                  "space-between",
+                alignItems:
+                  "center",
+                marginBottom:
+                  "15px",
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                }}
+              >
+                Stock Details
+              </h3>
 
-      <button
-        type="button"
-        onClick={goBack}
+              <button
+                onClick={() =>
+                  setSelectedItem(
+                    null
+                  )
+                }
+              >
+                ✕
+              </button>
+            </div>
+
+            <DetailRow
+              label="Medicine"
+              value={
+                selectedItem.medicine
+              }
+            />
+
+            <DetailRow
+              label="Company"
+              value={
+                selectedItem.company
+              }
+            />
+
+            <DetailRow
+              label="Batch"
+              value={
+                selectedItem.batch
+              }
+            />
+
+            <DetailRow
+              label="Barcode"
+              value={
+                selectedItem.barcode
+              }
+            />
+
+            <DetailRow
+              label="Supplier"
+              value={
+                selectedItem.supplier
+              }
+            />
+
+            <DetailRow
+              label="Supplier Mobile"
+              value={
+                selectedItem.supplierMobile
+              }
+            />
+
+            <DetailRow
+              label="Quantity"
+              value={
+                selectedItem.quantity
+              }
+            />
+
+            <DetailRow
+              label="Purchase Rate"
+              value={`₹${Number(
+                selectedItem.rate ||
+                  0
+              ).toFixed(2)}`}
+            />
+
+            <DetailRow
+              label="Purchase Rate With GST"
+              value={`₹${Number(
+                selectedItem.purchaseRateWithGST ??
+                  selectedItem.rate ??
+                  0
+              ).toFixed(2)}`}
+            />
+
+            <DetailRow
+              label="GST"
+              value={
+                selectedItem.gstType
+                  ? `${selectedItem.gstType} (${selectedItem.gstPercent || 0}%)`
+                  : "-"
+              }
+            />
+
+            <DetailRow
+              label="MRP"
+              value={`₹${Number(
+                selectedItem.mrp ||
+                  0
+              ).toFixed(2)}`}
+            />
+
+            <DetailRow
+              label="Sale Rate"
+              value={`₹${Number(
+                selectedItem.saleRate ||
+                  0
+              ).toFixed(2)}`}
+            />
+
+            <DetailRow
+              label="Purchase Amount"
+              value={`₹${Number(
+                selectedItem.purchaseAmount ||
+                  0
+              ).toFixed(2)}`}
+            />
+
+            <DetailRow
+              label="Expiry"
+              value={
+                selectedItem.expiry ||
+                "-"
+              }
+            />
+
+            <DetailRow
+              label="Stock ID"
+              value={
+                selectedItem.id ||
+                "-"
+              }
+            />
+          </div>
+        </div>
+      )}
+
+      {/* STATUS */}
+      <div
         style={{
-          width:
-            "100%",
-          marginTop:
-            "15px",
-          padding:
-            "13px",
-          background:
-            "#555",
-          color:
-            "white",
-          border:
-            "none",
-          borderRadius:
-            "8px",
-          fontSize:
-            "16px",
-          cursor:
-            "pointer",
-          fontWeight:
-            "bold",
+          marginTop: "15px",
+          fontSize: "12px",
+          color: "#777",
         }}
       >
-        ⬅️ Dashboard
-      </button>
+        Backend: {API_URL}
+      </div>
+
+      <style>
+        {`
+          .expired {
+            color: red;
+          }
+
+          .near-expiry {
+            color: orange;
+          }
+        `}
+      </style>
     </div>
   );
 }
 
-// =====================================================
-// INFO BOX
-// =====================================================
-
-function InfoBox({
-  title,
-  value,
-  valueColor,
-}) {
-  return (
-    <div
-      style={{
-        padding:
-          "15px",
-        background:
-          "#f8f9fa",
-        borderRadius:
-          "9px",
-        border:
-          "1px solid #e0e0e0",
-        minHeight:
-          "65px",
-        boxSizing:
-          "border-box",
-      }}
-    >
-      <div
-        style={{
-          fontSize:
-            "12px",
-          color:
-            "#666",
-          marginBottom:
-            "7px",
-        }}
-      >
-        {title}
-      </div>
-
-      <strong
-        style={{
-          fontSize:
-            "16px",
-          color:
-            valueColor ||
-            "#222",
-          wordBreak:
-            "break-word",
-        }}
-      >
-        {value}
-      </strong>
-    </div>
-  );
-}
-
-// =====================================================
-// SUMMARY BOX
-// =====================================================
-
-function SummaryBox({
-  title,
-  value,
-  color,
-}) {
-  return (
-    <div
-      style={{
-        background:
-          "white",
-        padding:
-          "12px",
-        borderRadius:
-          "9px",
-        borderLeft:
-          `4px solid ${color}`,
-        boxShadow:
-          "0 2px 7px rgba(0,0,0,0.05)",
-      }}
-    >
-      <div
-        style={{
-          fontSize:
-            "11px",
-          color:
-            "#666",
-        }}
-      >
-        {title}
-      </div>
-
-      <div
-        style={{
-          marginTop:
-            "4px",
-          fontSize:
-            "18px",
-          fontWeight:
-            "bold",
-          color,
-        }}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
-// =====================================================
+// =========================================================
 // TABLE STYLES
-// =====================================================
+// =========================================================
 
 const thStyle = {
-  border:
-    "1px solid #ddd",
-  padding:
-    "8px",
-  background:
-    "#e3f2fd",
+  padding: "10px",
+  textAlign: "left",
+  borderBottom:
+    "1px solid #ccc",
   whiteSpace:
     "nowrap",
-  textAlign:
-    "left",
 };
 
 const tdStyle = {
-  border:
-    "1px solid #ddd",
-  padding:
-    "8px",
-  whiteSpace:
-    "nowrap",
+  padding: "9px",
   verticalAlign:
     "middle",
+  whiteSpace:
+    "nowrap",
 };
+
+// =========================================================
+// DETAIL ROW
+// =========================================================
+
+function DetailRow({
+  label,
+  value,
+}) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns:
+          "180px 1fr",
+        gap: "10px",
+        padding:
+          "9px 0",
+        borderBottom:
+          "1px solid #eee",
+      }}
+    >
+      <strong>
+        {label}
+      </strong>
+
+      <span>
+        {value === undefined ||
+        value === null ||
+        value === ""
+          ? "-"
+          : String(value)}
+      </span>
+    </div>
+  );
+}
 
 export default Stock;
