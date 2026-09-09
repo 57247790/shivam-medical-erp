@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useState } from "react";
 
 function Stock({ stock, setStock, goBack }) {
@@ -6,14 +7,15 @@ function Stock({ stock, setStock, goBack }) {
 
   // =====================================================
   // BACKEND API URL
+  // ONLINE RENDER BACKEND
   // =====================================================
 
   const API_URL =
     process.env.REACT_APP_API_URL ||
-    "http://localhost:5000";
+    "https://shivam-medical-erp.onrender.com";
 
   // =====================================================
-  // LOAD STOCK FROM BACKEND / SQLITE
+  // LOAD STOCK FROM BACKEND
   // =====================================================
 
   useEffect(() => {
@@ -21,8 +23,18 @@ function Stock({ stock, setStock, goBack }) {
 
     const loadBackendStock = async () => {
       try {
+        console.log(
+          "🌐 STOCK API URL:",
+          `${API_URL}/api/stock`
+        );
+
         const response = await fetch(
           `${API_URL}/api/stock`
+        );
+
+        console.log(
+          "🌐 STOCK RESPONSE STATUS:",
+          response.status
         );
 
         if (!response.ok) {
@@ -32,6 +44,11 @@ function Stock({ stock, setStock, goBack }) {
         }
 
         const result = await response.json();
+
+        console.log(
+          "📦 BACKEND STOCK RESULT:",
+          result
+        );
 
         if (
           mounted &&
@@ -49,6 +66,11 @@ function Stock({ stock, setStock, goBack }) {
             "✅ STOCK LOADED FROM BACKEND:",
             result.stock
           );
+        } else {
+          console.error(
+            "❌ BACKEND STOCK DATA INVALID:",
+            result
+          );
         }
       } catch (error) {
         console.error(
@@ -56,8 +78,7 @@ function Stock({ stock, setStock, goBack }) {
           error
         );
 
-        // Backend fail होने पर localStorage वाला
-        // existing stock रहने दें
+        // Backend fail होने पर existing localStorage stock रहने दें
       }
     };
 
