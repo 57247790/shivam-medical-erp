@@ -1,0 +1,56 @@
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .print-bill,
+  .print-bill * {
+    visibility: visible;
+  }
+
+  .print-bill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 10px;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .bill-header {
+    text-align: center;
+  }
+
+  .bill-header h2 {
+    margin-bottom: 5px;
+  }
+
+  .bill-header p {
+    margin: 2px;
+  }
+
+  .bill-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .bill-table th,
+  .bill-table td {
+    border: 1px solid black;
+    padding: 5px;
+    text-align: left;
+  }
+
+  .bill-total {
+    text-align: right;
+  }
+
+  .payment-box {
+    border-top: 1px solid black;
+    margin-top: 10px;
+    padding-top: 5px;
+  }
+}
