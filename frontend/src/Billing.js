@@ -1,9 +1,18 @@
+
 import React, {
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+
+// =====================================================
+// ONLINE BACKEND
+// =====================================================
+
+const API_URL =
+  process.env.REACT_APP_API_URL ||
+  "https://shivam-medical-erp.onrender.com";
 
 function Billing({ stock, setStock, goBack }) {
   // =====================================================
@@ -32,6 +41,12 @@ function Billing({ stock, setStock, goBack }) {
   const quantityRef = useRef(null);
   const discountRef = useRef(null);
   const paymentRef = useRef(null);
+
+  // =====================================================
+  // PREVENT DOUBLE BILL SAVE
+  // =====================================================
+
+  const savingBillRef = useRef(false);
 
   // =====================================================
   // BILL ITEMS
@@ -714,10 +729,6 @@ function Billing({ stock, setStock, goBack }) {
 
       return;
     }
-
-    // ===================================================
-    // DUPLICATE MEDICINE CHECK
-    // ===================================================
 
     const existingIndex =
       billItems.findIndex(
@@ -1803,7 +1814,19 @@ function Billing({ stock, setStock, goBack }) {
   // SAVE BILL
   // =====================================================
 
- const saveBill = async () => {
+  const saveBill = async () => {
+    // ===================================================
+    // PREVENT DOUBLE CLICK / DOUBLE ENTER
+    // ===================================================
+
+    if (savingBillRef.current) {
+      alert(
+        "⏳ Bill पहले से save हो रहा है..."
+      );
+
+      return;
+    }
+
     if (!billItems.length) {
       alert(
         "⚠️ Bill में कोई Medicine नहीं है"
@@ -1839,440 +1862,170 @@ function Billing({ stock, setStock, goBack }) {
       return;
     }
 
-    // ===================================================
-    // STOCK VALIDATION
-    // ===================================================
+    savingBillRef.current = true;
 
-    const updatedStock = [
-      ...currentStock,
-    ];
+    try {
+      // =================================================
+      // STOCK VALIDATION
+      // =================================================
 
-    for (
-      const billItem of billItems
-    ) {
-      const index =
-        updatedStock.findIndex(
-          (stockItem) =>
-            stockItem.id ===
-            billItem.stockId
-        );
+      const updatedStock = [
+        ...currentStock,
+      ];
 
-      if (index < 0) {
-        alert(
-          `⚠️ ${billItem.medicine} Stock में नहीं मिली`
-        );
-
-        return;
-      }
-
-      const oldQty =
-        number(
-          updatedStock[index]
-            .quantity
-        );
-
-      if (
-        billItem.quantity >
-        oldQty
+      for (
+        const billItem of billItems
       ) {
-        alert(
-          `⚠️ ${billItem.medicine} का Stock कम है`
-        );
+        const index =
+          updatedStock.findIndex(
+            (stockItem) =>
+              String(stockItem.id) ===
+              String(billItem.stockId)
+          );
 
-        return;
+        if (index < 0) {
+          alert(
+            `⚠️ ${billItem.medicine} Stock में नहीं मिली`
+          );
+
+          return;
+        }
+
+        const oldQty =
+          number(
+            updatedStock[index]
+              .quantity
+          );
+
+        if (
+          number(billItem.quantity) >
+          oldQty
+        ) {
+          alert(
+            `⚠️ ${billItem.medicine} का Stock कम है`
+          );
+
+          return;
+        }
       }
-    }
 
-    // ===================================================
-    // DEDUCT STOCK
-    // ===================================================
+      // =================================================
+      // DEDUCT STOCK
+      // =================================================
 
-    for (
-      const billItem of billItems
-    ) {
-      const index =
-        updatedStock.findIndex(
-          (stockItem) =>
-            stockItem.id ===
-            billItem.stockId
+      for (
+        const billItem of billItems
+      ) {
+        const index =
+          updatedStock.findIndex(
+            (stockItem) =>
+              String(stockItem.id) ===
+              String(billItem.stockId)
+          );
+
+        const oldQty =
+          number(
+            updatedStock[index]
+              .quantity
+          );
+
+        updatedStock[index] = {
+          ...updatedStock[index],
+
+          quantity:
+            oldQty -
+            number(billItem.quantity),
+
+          updatedAt:
+            Date.now(),
+        };
+      }
+
+      // =================================================
+      // BILL IDS
+      // =================================================
+
+      const billId =
+        makeId("BILL");
+
+      const billNo =
+        "BILL-" +
+        Date.now();
+
+      const cleanCustomerMobile =
+        mobileClean(
+          customerMobile
         );
 
-      const oldQty =
-        number(
-          updatedStock[index]
-            .quantity
-        );
-
-      updatedStock[index] = {
-        ...updatedStock[index],
-
-        quantity:
-          oldQty -
-          billItem.quantity,
-
-        updatedAt:
-          Date.now(),
-      };
-    }
-
-    // ===================================================
-    // BILL IDS
-    // ===================================================
-
-    const billId =
-      makeId("BILL");
-
-    const billNo =
-      "BILL-" +
-      Date.now();
-
-    const cleanCustomerMobile =
-      mobileClean(
-        customerMobile
-      );
-
-    // ===================================================
-    // FINAL VALUES
-    // ===================================================
-
-    const finalDiscountPercent =
-      roundMoney(
-        discountPercentValue
-      );
-
-    const finalDiscountAmount =
-      roundMoney(
-        discountAmount
-      );
-
-    const finalSubtotal =
-      roundMoney(
-        billTotal
-      );
-
-    const savedFinalBillTotal =
-      roundMoney(
-        finalBillTotal
-      );
-
-    const finalAdvanceAdjusted =
-      roundMoney(
-        advanceAdjusted
-      );
-
-    const finalBillAfterAdvance =
-      roundMoney(
-        billAfterAdvance
-      );
-
-    const finalPaidEntered =
-      roundMoney(
-        paidEntered
-      );
-
-    const finalBillPaid =
-      roundMoney(
-        billPaid
-      );
-
-    const finalBakiUdhari =
-      roundMoney(
-        bakiUdhari
-      );
-
-    const finalNewAdvance =
-      roundMoney(
-        newAdvanceFromBill
-      );
-
-    const savedFinalAdvanceBalance =
-      roundMoney(
-        finalAdvanceBalance
-      );
-
-    // ===================================================
-    // BILL OBJECT
-    // ===================================================
-
-    const bill = {
-      id:
-        billId,
-
-      billNo:
-        billNo,
-
-      customer:
-        customerName.trim(),
-
-      customerName:
-        customerName.trim(),
-
-      customerMobile:
-        cleanCustomerMobile,
-
-      mobile:
-        cleanCustomerMobile,
-
-      items:
-        billItems,
-
       // =================================================
-      // BILL INFO
+      // FINAL VALUES
       // =================================================
 
-      totalItems:
-        totalItems,
-
-      totalQuantity:
-        totalQuantity,
-
-      // =================================================
-      // DISCOUNT
-      // =================================================
-
-      discountPercent:
-        finalDiscountPercent,
-
-      discountAmount:
-        finalDiscountAmount,
-
-      // =================================================
-      // TOTALS
-      // =================================================
-
-      subtotal:
-        finalSubtotal,
-
-      billTotal:
-        savedFinalBillTotal,
-
-      total:
-        savedFinalBillTotal,
-
-      totalAmount:
-        savedFinalBillTotal,
-
-      // =================================================
-      // ADVANCE
-      // =================================================
-
-      previousAdvance:
+      const finalDiscountPercent =
         roundMoney(
-          customerAdvance
-        ),
-
-      advanceAdjusted:
-        finalAdvanceAdjusted,
-
-      advanceUsed:
-        finalAdvanceAdjusted,
-
-      billAfterAdvance:
-        finalBillAfterAdvance,
-
-      // =================================================
-      // PAYMENT
-      // =================================================
-
-      paymentReceived:
-        finalPaidEntered,
-
-      receivedAmount:
-        finalPaidEntered,
-
-      billPaid:
-        finalBillPaid,
-
-      paidNow:
-        finalBillPaid,
-
-      jama:
-        finalBillPaid,
-
-      paid:
-        finalBillPaid,
-
-      paidAmount:
-        finalBillPaid,
-
-      paidAtBill:
-        finalBillPaid,
-
-      receivedAtBill:
-        finalBillPaid,
-
-      // =================================================
-      // UDHARI
-      // =================================================
-
-      bakiUdhari:
-        finalBakiUdhari,
-
-      pendingAmount:
-        finalBakiUdhari,
-
-      creditAmount:
-        finalBakiUdhari,
-
-      credit:
-        finalBakiUdhari > 0,
-
-      // =================================================
-      // ADVANCE
-      // =================================================
-
-      advance:
-        finalNewAdvance,
-
-      advanceAdded:
-        finalNewAdvance,
-
-      advanceBalance:
-        savedFinalAdvanceBalance,
-
-      remainingAdvance:
-        savedFinalAdvanceBalance,
-
-      // =================================================
-      // PAYMENT TYPE
-      // =================================================
-
-      paymentType:
-        finalBakiUdhari > 0
-          ? "PARTIAL_PAID"
-          : savedFinalAdvanceBalance > 0
-          ? "FULL_PAID_PLUS_ADVANCE"
-          : "FULL_PAID",
-
-      // =================================================
-      // DATE
-      // =================================================
-
-      date:
-        today(),
-
-      billDate:
-        today(),
-
-      createdAt:
-        Date.now(),
-    };
-
-    // ===================================================
-    // SAVE BILL
-    // ===================================================
-
-    const bills =
-      readStorage(
-        "bills",
-        []
-      );
-
-    writeStorage(
-      "bills",
-      [
-        bill,
-        ...bills,
-      ]
-    );
-
-
-// ===================================================
-// SAVE BILL TO BACKEND
-// ===================================================
-
-try {
-  const response = await fetch(
-   `${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/bills`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(bill),
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    console.error(
-      "BACKEND BILL SAVE ERROR:",
-      result
-    );
-
-    alert(
-      "⚠️ Bill Backend में save नहीं हुआ\n" +
-      (result.message || "")
-    );
-
-    return;
-  }
-
-  console.log(
-    "✅ BILL SAVED TO BACKEND:",
-    result.bill
-  );
-
-} catch (error) {
-  console.error(
-    "BACKEND CONNECTION ERROR:",
-    error
-  );
-
-  alert(
-    "⚠️ Backend से connection नहीं हुआ"
-  );
-
-  return;
-}
-    // ===================================================
-    // SAVE SALES
-    // ===================================================
-
-    const sales =
-      readStorage(
-        "sales",
-        []
-      );
-
-    writeStorage(
-      "sales",
-      [
-        ...sales,
-        {
-          ...bill,
-
-          saleAmount:
-            savedFinalBillTotal,
-        },
-      ]
-    );
-
-    // ===================================================
-    // SAVE CUSTOMER MASTER
-    // ===================================================
-
-    saveCustomerMaster();
-
-    // ===================================================
-    // SAVE CUSTOMER CREDIT
-    // ===================================================
-
-    if (
-      finalBakiUdhari > 0
-    ) {
-      const customerCredits =
-        readStorage(
-          "customerCredits",
-          []
+          discountPercentValue
         );
 
-      customerCredits.unshift({
+      const finalDiscountAmount =
+        roundMoney(
+          discountAmount
+        );
+
+      const finalSubtotal =
+        roundMoney(
+          billTotal
+        );
+
+      const savedFinalBillTotal =
+        roundMoney(
+          finalBillTotal
+        );
+
+      const finalAdvanceAdjusted =
+        roundMoney(
+          advanceAdjusted
+        );
+
+      const finalBillAfterAdvance =
+        roundMoney(
+          billAfterAdvance
+        );
+
+      const finalPaidEntered =
+        roundMoney(
+          paidEntered
+        );
+
+      const finalBillPaid =
+        roundMoney(
+          billPaid
+        );
+
+      const finalBakiUdhari =
+        roundMoney(
+          bakiUdhari
+        );
+
+      const finalNewAdvance =
+        roundMoney(
+          newAdvanceFromBill
+        );
+
+      const savedFinalAdvanceBalance =
+        roundMoney(
+          finalAdvanceBalance
+        );
+
+      // =================================================
+      // BILL OBJECT
+      // =================================================
+
+      const bill = {
         id:
-          makeId(
-            "CREDIT"
-          ),
+          billId,
+
+        billNo:
+          billNo,
 
         customer:
           customerName.trim(),
@@ -2283,267 +2036,661 @@ try {
         customerMobile:
           cleanCustomerMobile,
 
-        amount:
+        mobile:
+          cleanCustomerMobile,
+
+        items:
+          billItems,
+
+        totalItems:
+          totalItems,
+
+        totalQuantity:
+          totalQuantity,
+
+        discountPercent:
+          finalDiscountPercent,
+
+        discountAmount:
+          finalDiscountAmount,
+
+        subtotal:
+          finalSubtotal,
+
+        billTotal:
+          savedFinalBillTotal,
+
+        total:
+          savedFinalBillTotal,
+
+        totalAmount:
+          savedFinalBillTotal,
+
+        previousAdvance:
+          roundMoney(
+            customerAdvance
+          ),
+
+        advanceAdjusted:
+          finalAdvanceAdjusted,
+
+        advanceUsed:
+          finalAdvanceAdjusted,
+
+        billAfterAdvance:
+          finalBillAfterAdvance,
+
+        paymentReceived:
+          finalPaidEntered,
+
+        receivedAmount:
+          finalPaidEntered,
+
+        billPaid:
+          finalBillPaid,
+
+        paidNow:
+          finalBillPaid,
+
+        jama:
+          finalBillPaid,
+
+        paid:
+          finalBillPaid,
+
+        paidAmount:
+          finalBillPaid,
+
+        paidAtBill:
+          finalBillPaid,
+
+        receivedAtBill:
+          finalBillPaid,
+
+        bakiUdhari:
+          finalBakiUdhari,
+
+        pendingAmount:
           finalBakiUdhari,
 
         creditAmount:
           finalBakiUdhari,
 
-        billNumber:
-          billNo,
+        credit:
+          finalBakiUdhari > 0,
 
-        billNo:
-          billNo,
+        advance:
+          finalNewAdvance,
 
-        billId:
-          billId,
+        advanceAdded:
+          finalNewAdvance,
+
+        advanceBalance:
+          savedFinalAdvanceBalance,
+
+        remainingAdvance:
+          savedFinalAdvanceBalance,
+
+        paymentType:
+          finalBakiUdhari > 0
+            ? "PARTIAL_PAID"
+            : savedFinalAdvanceBalance > 0
+            ? "FULL_PAID_PLUS_ADVANCE"
+            : "FULL_PAID",
 
         date:
           today(),
 
+        billDate:
+          today(),
+
         createdAt:
           Date.now(),
+      };
 
-        note:
-          "Bill की बाकी उधारी",
-      });
+      // =================================================
+      // STEP 1
+      // SAVE BILL TO ONLINE BACKEND
+      // =================================================
+
+      console.log(
+        "🌐 BILLING API:",
+        API_URL
+      );
+
+      console.log(
+        "📤 BILL SEND TO BACKEND:",
+        bill
+      );
+
+      let billResponse;
+
+      try {
+        billResponse = await fetch(
+          `${API_URL}/api/bills`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body:
+              JSON.stringify(
+                bill
+              ),
+          }
+        );
+      } catch (error) {
+        console.error(
+          "❌ BILL BACKEND CONNECTION ERROR:",
+          error
+        );
+
+        alert(
+          "⚠️ Online Backend से connection नहीं हुआ.\n\nBill save नहीं किया गया."
+        );
+
+        return;
+      }
+
+      let billResult = {};
+
+      try {
+        billResult =
+          await billResponse.json();
+      } catch {
+        billResult = {};
+      }
+
+      if (!billResponse.ok) {
+        console.error(
+          "❌ BACKEND BILL SAVE ERROR:",
+          billResult
+        );
+
+        alert(
+          "⚠️ Online Backend में Bill save नहीं हुआ.\n\n" +
+          (
+            billResult.message ||
+            "Server Error"
+          )
+        );
+
+        return;
+      }
+
+      console.log(
+        "✅ BILL SAVED ONLINE:",
+        billResult
+      );
+
+      // =================================================
+      // STEP 2
+      // UPDATE STOCK TO ONLINE BACKEND
+      // =================================================
+
+      console.log(
+        "📦 START ONLINE STOCK UPDATE"
+      );
+
+      for (
+        const billItem of billItems
+      ) {
+        const stockItem =
+          updatedStock.find(
+            (item) =>
+              String(item.id) ===
+              String(billItem.stockId)
+          );
+
+        if (!stockItem) {
+          alert(
+            `⚠️ ${billItem.medicine} का Stock item नहीं मिला`
+          );
+
+          return;
+        }
+
+        // ===============================================
+        // FIND REAL BACKEND ID
+        // ===============================================
+
+        const possibleBackendId =
+          stockItem.backendId ||
+          stockItem.id;
+
+        const backendId =
+          Number(
+            possibleBackendId
+          );
+
+        console.log(
+          "🔎 BILLING STOCK ITEM:",
+          stockItem
+        );
+
+        console.log(
+          "🔎 BACKEND STOCK ID:",
+          backendId
+        );
+
+        if (
+          !Number.isInteger(
+            backendId
+          ) ||
+          backendId <= 0
+        ) {
+          alert(
+            `⚠️ ${stockItem.medicine || "Medicine"} का valid Backend Stock ID नहीं मिला`
+          );
+
+          console.error(
+            "❌ INVALID BACKEND STOCK ID:",
+            stockItem
+          );
+
+          return;
+        }
+
+        let stockResponse;
+
+        try {
+          stockResponse =
+            await fetch(
+              `${API_URL}/api/stock/${backendId}`,
+              {
+                method: "PUT",
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+                body:
+                  JSON.stringify({
+                    ...stockItem,
+
+                    id:
+                      backendId,
+
+                    backendId:
+                      backendId,
+
+                    quantity:
+                      number(
+                        stockItem.quantity
+                      ),
+
+                    updatedAt:
+                      Date.now(),
+                  }),
+              }
+            );
+        } catch (error) {
+          console.error(
+            "❌ STOCK BACKEND CONNECTION ERROR:",
+            error
+          );
+
+          alert(
+            `⚠️ ${stockItem.medicine || "Medicine"} का online stock update नहीं हुआ.\n\nBill process रोक दिया गया.`
+          );
+
+          return;
+        }
+
+        let stockResult = {};
+
+        try {
+          stockResult =
+            await stockResponse.json();
+        } catch {
+          stockResult = {};
+        }
+
+        if (
+          !stockResponse.ok
+        ) {
+          console.error(
+            "❌ BACKEND STOCK UPDATE ERROR:",
+            stockResult
+          );
+
+          alert(
+            `⚠️ ${stockItem.medicine || "Medicine"} का online stock update नहीं हुआ.\n\n` +
+            (
+              stockResult.message ||
+              "Server Error"
+            )
+          );
+
+          return;
+        }
+
+        console.log(
+          "✅ BACKEND STOCK UPDATED:",
+          stockResult
+        );
+      }
+
+      console.log(
+        "✅ ALL STOCK UPDATED ONLINE"
+      );
+
+      // =================================================
+      // STEP 3
+      // GET LATEST ONLINE STOCK
+      // =================================================
+
+      let latestOnlineStock =
+        null;
+
+      try {
+        const latestStockResponse =
+          await fetch(
+            `${API_URL}/api/stock`,
+            {
+              method: "GET",
+              cache: "no-store",
+            }
+          );
+
+        if (
+          latestStockResponse.ok
+        ) {
+          const latestStockResult =
+            await latestStockResponse.json();
+
+          if (
+            Array.isArray(
+              latestStockResult
+            )
+          ) {
+            latestOnlineStock =
+              latestStockResult;
+          } else if (
+            latestStockResult &&
+            Array.isArray(
+              latestStockResult.stock
+            )
+          ) {
+            latestOnlineStock =
+              latestStockResult.stock;
+          }
+        }
+      } catch (error) {
+        console.warn(
+          "⚠️ Latest online stock fetch failed:",
+          error
+        );
+      }
+
+      // =================================================
+      // STEP 4
+      // LOCAL BILL SAVE
+      // =================================================
+
+      const bills =
+        readStorage(
+          "bills",
+          []
+        );
 
       writeStorage(
-        "customerCredits",
-        customerCredits
+        "bills",
+        [
+          bill,
+          ...bills,
+        ]
       );
-    }
 
-    // ===================================================
-    // UPDATE ADVANCE
-    // ===================================================
+      // =================================================
+      // STEP 5
+      // SAVE SALES
+      // =================================================
 
-    const advanceSaved =
-      saveFinalAdvance();
+      const sales =
+        readStorage(
+          "sales",
+          []
+        );
 
-    if (!advanceSaved) {
-      return;
-    }
+      writeStorage(
+        "sales",
+        [
+          ...sales,
+          {
+            ...bill,
 
-   // ===================================================
-// SAVE STOCK - LOCAL + BACKEND
-// ===================================================
-
-// LOCAL STOCK
-setStock(
-  updatedStock
-);
-
-writeStorage(
-  "stock",
-  updatedStock
-);
-
-// ===================================================
-// UPDATE STOCK TO BACKEND
-// ===================================================
-
-try {
-  for (const billItem of billItems) {
-    const stockItem = updatedStock.find(
-      (item) =>
-        item.id === billItem.stockId
-    );
-
-    if (!stockItem) {
-      console.error(
-        "❌ Backend stock item नहीं मिला:",
-        billItem.stockId
+            saleAmount:
+              savedFinalBillTotal,
+          },
+        ]
       );
-      continue;
-    }
-const backendId =
-  stockItem.backendId ||
-  (
-    Number.isInteger(Number(stockItem.id))
-      ? Number(stockItem.id)
-      : null
-  );
-console.log("🔎 BILLING STOCK ITEM:", stockItem);
-if (!backendId) {
-  console.error(
-    "❌ Backend ID नहीं मिली:",
-    stockItem
-  );
-  continue;
-}
-    const response = await fetch(
-    `${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/stock/${backendId}`,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...stockItem,
-          quantity: number(
-            stockItem.quantity
-          ),
-          updatedAt: Date.now(),
-        }),
+
+      // =================================================
+      // STEP 6
+      // SAVE CUSTOMER MASTER
+      // =================================================
+
+      saveCustomerMaster();
+
+      // =================================================
+      // STEP 7
+      // SAVE CUSTOMER CREDIT
+      // =================================================
+
+      if (
+        finalBakiUdhari > 0
+      ) {
+        const customerCredits =
+          readStorage(
+            "customerCredits",
+            []
+          );
+
+        customerCredits.unshift({
+          id:
+            makeId(
+              "CREDIT"
+            ),
+
+          customer:
+            customerName.trim(),
+
+          customerName:
+            customerName.trim(),
+
+          customerMobile:
+            cleanCustomerMobile,
+
+          amount:
+            finalBakiUdhari,
+
+          creditAmount:
+            finalBakiUdhari,
+
+          billNumber:
+            billNo,
+
+          billNo:
+            billNo,
+
+          billId:
+            billId,
+
+          date:
+            today(),
+
+          createdAt:
+            Date.now(),
+
+          note:
+            "Bill की बाकी उधारी",
+        });
+
+        writeStorage(
+          "customerCredits",
+          customerCredits
+        );
       }
-    );
 
-    const result =
-      await response.json();
+      // =================================================
+      // STEP 8
+      // UPDATE ADVANCE
+      // =================================================
 
-    if (!response.ok) {
-      console.error(
-        "❌ BACKEND STOCK UPDATE ERROR:",
-        result
+      const advanceSaved =
+        saveFinalAdvance();
+
+      if (!advanceSaved) {
+        return;
+      }
+
+      // =================================================
+      // STEP 9
+      // LOCAL STOCK UPDATE
+      // =================================================
+
+      const finalStock =
+        Array.isArray(
+          latestOnlineStock
+        )
+          ? latestOnlineStock
+          : updatedStock;
+
+      setStock(
+        finalStock
       );
 
-      alert(
-        `⚠️ ${stockItem.medicine || "Medicine"} का backend stock update नहीं हुआ`
+      writeStorage(
+        "stock",
+        finalStock
       );
 
-      return;
-    }
+      // =================================================
+      // EVENTS
+      // =================================================
 
-    console.log(
-      "✅ BACKEND STOCK UPDATED:",
-      result.stock
-    );
-  }
+      window.dispatchEvent(
+        new Event(
+          "stockUpdated"
+        )
+      );
 
-  console.log(
-    "✅ सभी stock backend में update हो गए"
-  );
+      window.dispatchEvent(
+        new Event(
+          "salesUpdated"
+        )
+      );
 
-} catch (error) {
-  console.error(
-    "❌ BACKEND STOCK CONNECTION ERROR:",
-    error
-  );
+      window.dispatchEvent(
+        new Event(
+          "billingUpdated"
+        )
+      );
 
-  alert(
-    "⚠️ Backend stock से connection नहीं हुआ"
-  );
+      window.dispatchEvent(
+        new Event(
+          "customerLedgerUpdated"
+        )
+      );
 
-  return;
-}
-    // ===================================================
-    // EVENTS
-    // ===================================================
+      window.dispatchEvent(
+        new Event(
+          "advanceUpdated"
+        )
+      );
 
-    window.dispatchEvent(
-      new Event(
-        "stockUpdated"
-      )
-    );
+      window.dispatchEvent(
+        new Event(
+          "customersUpdated"
+        )
+      );
 
-    window.dispatchEvent(
-      new Event(
-        "salesUpdated"
-      )
-    );
+      // =================================================
+      // LAST SAVED
+      // =================================================
 
-    window.dispatchEvent(
-      new Event(
-        "billingUpdated"
-      )
-    );
+      setLastSavedBillNo(
+        billNo
+      );
 
-    window.dispatchEvent(
-      new Event(
-        "customerLedgerUpdated"
-      )
-    );
+      setLastSavedAmount(
+        savedFinalBillTotal
+      );
 
-    window.dispatchEvent(
-      new Event(
-        "advanceUpdated"
-      )
-    );
+      // =================================================
+      // SUCCESS
+      // =================================================
 
-    window.dispatchEvent(
-      new Event(
-        "customersUpdated"
-      )
-    );
-
-    // ===================================================
-    // LAST SAVED
-    // ===================================================
-
-    setLastSavedBillNo(
-      billNo
-    );
-
-    setLastSavedAmount(
-      savedFinalBillTotal
-    );
-
-    // ===================================================
-    // SUCCESS
-    // ===================================================
-
-    let successMessage =
-      "✅ Bill Saved Successfully\n\n" +
-      `Bill No: ${billNo}\n` +
-      `Total Bill: ₹${finalSubtotal.toFixed(
-        2
-      )}\n`;
-
-    if (
-      finalDiscountAmount > 0
-    ) {
-      successMessage +=
-        `Discount (${finalDiscountPercent}%): -₹${finalDiscountAmount.toFixed(
+      let successMessage =
+        "✅ Bill Saved Successfully\n\n" +
+        `Bill No: ${billNo}\n` +
+        `Total Bill: ₹${finalSubtotal.toFixed(
           2
         )}\n`;
+
+      if (
+        finalDiscountAmount > 0
+      ) {
+        successMessage +=
+          `Discount (${finalDiscountPercent}%): -₹${finalDiscountAmount.toFixed(
+            2
+          )}\n`;
+      }
+
+      successMessage +=
+        `Final Bill: ₹${savedFinalBillTotal.toFixed(
+          2
+        )}\n` +
+        `Previous Advance Adjusted: ₹${finalAdvanceAdjusted.toFixed(
+          2
+        )}\n` +
+        `Bill After Advance: ₹${finalBillAfterAdvance.toFixed(
+          2
+        )}\n` +
+        `Bill Paid: ₹${finalBillPaid.toFixed(
+          2
+        )}\n` +
+        `बाकी उधारी: ₹${finalBakiUdhari.toFixed(
+          2
+        )}\n` +
+        `Advance Balance: ₹${savedFinalAdvanceBalance.toFixed(
+          2
+        )}\n\n` +
+        "🌐 Online Bill + Stock Updated";
+
+      alert(
+        successMessage
+      );
+
+      // =================================================
+      // CLEAR
+      // =================================================
+
+      setCustomerName("");
+      setCustomerMobile("");
+      setCustomerSuggestions([]);
+      setShowCustomerSuggestions(false);
+
+      setMedicineSearch("");
+      setSelectedMedicine(null);
+      setQuantity("");
+      setBillItems([]);
+      setBillPayment("");
+      setDiscountPercent("");
+      setCustomerAdvance(0);
+      setAdvanceMatched(false);
+
+      setTimeout(() => {
+        searchRef.current?.focus();
+      }, 100);
+
+    } finally {
+      // =================================================
+      // RELEASE SAVE LOCK
+      // =================================================
+
+      savingBillRef.current = false;
     }
-
-    successMessage +=
-      `Final Bill: ₹${savedFinalBillTotal.toFixed(
-        2
-      )}\n` +
-      `Previous Advance Adjusted: ₹${finalAdvanceAdjusted.toFixed(
-        2
-      )}\n` +
-      `Bill After Advance: ₹${finalBillAfterAdvance.toFixed(
-        2
-      )}\n` +
-      `Bill Paid: ₹${finalBillPaid.toFixed(
-        2
-      )}\n` +
-      `बाकी उधारी: ₹${finalBakiUdhari.toFixed(
-        2
-      )}\n` +
-      `Advance Balance: ₹${savedFinalAdvanceBalance.toFixed(
-        2
-      )}`;
-
-    alert(
-      successMessage
-    );
-
-    // ===================================================
-    // CLEAR
-    // ===================================================
-
-    setCustomerName("");
-    setCustomerMobile("");
-    setCustomerSuggestions([]);
-    setShowCustomerSuggestions(false);
-
-    setMedicineSearch("");
-    setSelectedMedicine(null);
-    setQuantity("");
-    setBillItems([]);
-    setBillPayment("");
-    setDiscountPercent("");
-    setCustomerAdvance(0);
-    setAdvanceMatched(false);
-
-    setTimeout(() => {
-      searchRef.current?.focus();
-    }, 100);
   };
 
   // =====================================================
@@ -2551,6 +2698,16 @@ if (!backendId) {
   // =====================================================
 
   const newBill = () => {
+    if (
+      savingBillRef.current
+    ) {
+      alert(
+        "⏳ पहले Bill save होने दें"
+      );
+
+      return;
+    }
+
     setCustomerName("");
     setCustomerMobile("");
     setCustomerSuggestions([]);
@@ -2579,21 +2736,22 @@ if (!backendId) {
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
-      // Ctrl + Enter = Save Bill
       if (
         e.ctrlKey &&
         e.key === "Enter"
       ) {
         e.preventDefault();
 
-        if (billItems.length > 0) {
+        if (
+          billItems.length > 0 &&
+          !savingBillRef.current
+        ) {
           saveBill();
         }
 
         return;
       }
 
-      // Ctrl + N = New Bill
       if (
         e.ctrlKey &&
         e.key.toLowerCase() === "n"
@@ -2603,28 +2761,24 @@ if (!backendId) {
         return;
       }
 
-      // F2 = Medicine Search
       if (e.key === "F2") {
         e.preventDefault();
         searchRef.current?.focus();
         return;
       }
 
-      // F4 = Payment
       if (e.key === "F4") {
         e.preventDefault();
         paymentRef.current?.focus();
         return;
       }
 
-      // F6 = Discount
       if (e.key === "F6") {
         e.preventDefault();
         discountRef.current?.focus();
         return;
       }
 
-      // Escape
       if (e.key === "Escape") {
         setShowCustomerSuggestions(false);
       }
@@ -2657,7 +2811,10 @@ if (!backendId) {
     if (e.key === "Enter") {
       e.preventDefault();
 
-      if (billItems.length > 0) {
+      if (
+        billItems.length > 0 &&
+        !savingBillRef.current
+      ) {
         saveBill();
       }
     }
@@ -3072,9 +3229,7 @@ if (!backendId) {
         }
       `}</style>
 
-      {/* =================================================
-          HEADER
-          ================================================= */}
+      {/* HEADER */}
 
       <div className="billing-header">
         <div>
@@ -3092,9 +3247,7 @@ if (!backendId) {
         </div>
       </div>
 
-      {/* =================================================
-          LAST SAVED
-          ================================================= */}
+      {/* LAST SAVED */}
 
       {lastSavedBillNo && (
         <div className="saved-box">
@@ -3107,9 +3260,7 @@ if (!backendId) {
         </div>
       )}
 
-      {/* =================================================
-          CUSTOMER
-          ================================================= */}
+      {/* CUSTOMER */}
 
       <div className="customer-panel">
         <h3 className="panel-title">
@@ -3117,8 +3268,6 @@ if (!backendId) {
         </h3>
 
         <div className="customer-grid">
-          {/* NAME */}
-
           <div className="relative-box">
             <input
               type="text"
@@ -3198,8 +3347,6 @@ if (!backendId) {
               )}
           </div>
 
-          {/* MOBILE */}
-
           <div className="relative-box">
             <input
               type="text"
@@ -3242,9 +3389,7 @@ if (!backendId) {
         </div>
       </div>
 
-      {/* =================================================
-          ADVANCE FOUND
-          ================================================= */}
+      {/* ADVANCE FOUND */}
 
       {advanceMatched &&
         customerAdvance > 0 && (
@@ -3280,9 +3425,7 @@ if (!backendId) {
           </div>
         )}
 
-      {/* =================================================
-          MEDICINE
-          ================================================= */}
+      {/* MEDICINE */}
 
       <div className="medicine-panel">
         <h3 className="panel-title">
@@ -3441,10 +3584,6 @@ if (!backendId) {
           </div>
         )}
 
-        {/* =================================================
-            QUANTITY
-            ================================================= */}
-
         <div className="quantity-row">
           <input
             ref={quantityRef}
@@ -3479,9 +3618,7 @@ if (!backendId) {
         </div>
       </div>
 
-      {/* =================================================
-          PREVIOUS PURCHASE HISTORY
-          ================================================= */}
+      {/* PREVIOUS PURCHASE HISTORY */}
 
       {selectedMedicine &&
         (customerName.trim() ||
@@ -3617,9 +3754,7 @@ if (!backendId) {
           </div>
         )}
 
-      {/* =================================================
-          BILL TABLE
-          ================================================= */}
+      {/* BILL TABLE */}
 
       <div className="bill-panel">
         <div
@@ -3788,15 +3923,14 @@ if (!backendId) {
         </div>
       </div>
 
-      {/* =================================================
-          SMART STATS
-          ================================================= */}
+      {/* SMART STATS */}
 
       <div className="smart-stats">
         <div className="stat-card">
           <div className="stat-label">
             🧾 Total Items
           </div>
+
           <div className="stat-value">
             {totalItems}
           </div>
@@ -3806,6 +3940,7 @@ if (!backendId) {
           <div className="stat-label">
             📦 Total Quantity
           </div>
+
           <div className="stat-value">
             {totalQuantity}
           </div>
@@ -3815,6 +3950,7 @@ if (!backendId) {
           <div className="stat-label">
             💰 Bill Total
           </div>
+
           <div className="stat-value">
             ₹{billTotal.toFixed(2)}
           </div>
@@ -3824,15 +3960,14 @@ if (!backendId) {
           <div className="stat-label">
             🏷️ Discount
           </div>
+
           <div className="stat-value">
             ₹{discountAmount.toFixed(2)}
           </div>
         </div>
       </div>
 
-      {/* =================================================
-          PAYMENT
-          ================================================= */}
+      {/* PAYMENT */}
 
       <div className="payment-panel">
         <div
@@ -3926,8 +4061,6 @@ if (!backendId) {
         </div>
 
         <div className="payment-grid">
-          {/* FINAL BILL */}
-
           <div className="payment-input-box">
             <b>
               💰 Final Bill
@@ -3960,8 +4093,6 @@ if (!backendId) {
               </small>
             )}
           </div>
-
-          {/* PAYMENT */}
 
           <div className="payment-input-box">
             <label>
@@ -4010,9 +4141,7 @@ if (!backendId) {
           </div>
         </div>
 
-        {/* =================================================
-            FINAL SUMMARY
-            ================================================= */}
+        {/* FINAL SUMMARY */}
 
         {showBillSummary && (
           <div className="summary-box">
@@ -4178,15 +4307,16 @@ if (!backendId) {
         )}
       </div>
 
-      {/* =================================================
-          ACTION BUTTONS
-          ================================================= */}
+      {/* ACTION BUTTONS */}
 
       <div className="action-row">
         <button
           type="button"
           onClick={saveBill}
           className="smart-button button-success"
+          disabled={
+            savingBillRef.current
+          }
         >
           💾 Save Bill
         </button>
@@ -4216,9 +4346,7 @@ if (!backendId) {
         </button>
       </div>
 
-      {/* =================================================
-          KEYBOARD HELP
-          ================================================= */}
+      {/* KEYBOARD HELP */}
 
       <div className="keyboard-help">
         <b>⌨️ Smart Shortcuts:</b>

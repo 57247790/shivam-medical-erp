@@ -1,50 +1,28 @@
 
-import React, {
-  useEffect,
-  useMemo,
-  useState
-} from "react";
+import React, { useEffect, useMemo, useState } from "react";
+
+const API_URL =
+  process.env.REACT_APP_API_URL ||
+  "https://shivam-medical-erp.onrender.com";
 
 function CustomerLedger({ setPage, goBack }) {
+  // =========================================================
+  // STATE
+  // =========================================================
+
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [search, setSearch] = useState("");
-  const [showBills, setShowBills] = useState(false);
+  const [showBills, setShowBills] = useState(true);
   const [refresh, setRefresh] = useState(0);
+  const [onlineBills, setOnlineBills] = useState([]);
 
-  // =====================================================
-  // AUTO REFRESH CUSTOMER LEDGER
-  // =====================================================
-
-  useEffect(() => {
-    const refreshLedger = () => {
-      setRefresh((prev) => prev + 1);
-    };
-
-    window.addEventListener("customerLedgerUpdated", refreshLedger);
-    window.addEventListener("advanceUpdated", refreshLedger);
-    window.addEventListener("billingUpdated", refreshLedger);
-    window.addEventListener("storage", refreshLedger);
-    window.addEventListener("focus", refreshLedger);
-
-    return () => {
-      window.removeEventListener("customerLedgerUpdated", refreshLedger);
-      window.removeEventListener("advanceUpdated", refreshLedger);
-      window.removeEventListener("billingUpdated", refreshLedger);
-      window.removeEventListener("storage", refreshLedger);
-      window.removeEventListener("focus", refreshLedger);
-    };
-  }, []);
-
-  // =====================================================
-  // SAFE LOCAL STORAGE
-  // =====================================================
+  // =========================================================
+  // BASIC HELPERS
+  // =========================================================
 
   const loadArray = (key) => {
     try {
-      const data = JSON.parse(
-        localStorage.getItem(key) || "[]"
-      );
-
+      const data = JSON.parse(localStorage.getItem(key) || "[]");
       return Array.isArray(data) ? data : [];
     } catch {
       return [];
@@ -53,225 +31,269 @@ function CustomerLedger({ setPage, goBack }) {
 
   const loadObject = (key) => {
     try {
-      const data = JSON.parse(
-        localStorage.getItem(key) || "{}"
-      );
-
-      return data && typeof data === "object"
-        ? data
-        : {};
+      const data = JSON.parse(localStorage.getItem(key) || "{}");
+      return data && typeof data === "object" ? data : {};
     } catch {
       return {};
     }
   };
 
-  // =====================================================
-  // DATA
-  // =====================================================
-
-  const bills = useMemo(() => {
-    return loadArray("bills");
-  }, [refresh]);
-
-  const customerPayments = useMemo(() => {
-    return loadArray("customerPayments");
-  }, [refresh]);
-
-  const advances = useMemo(() => {
-    return loadArray("advances");
-  }, [refresh]);
-
-  const customerAdvances = useMemo(() => {
-    return loadObject("customerAdvances");
-  }, [refresh]);
-
-  // =====================================================
-  // MONEY
-  // =====================================================
-
   const roundMoney = (value) => {
-    const number = Number(value || 0);
-
-    if (!Number.isFinite(number)) {
-      return 0;
-    }
-
-    return Number(number.toFixed(2));
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round((n + Number.EPSILON) * 100) / 100;
   };
 
   const money = (value) => {
     return `₹${roundMoney(value).toFixed(2)}`;
   };
 
-  // =====================================================
-  // CUSTOMER NAME
-  // =====================================================
-
-  const getCustomerName = (item) => {
-    return String(
-      item?.customer ||
-        item?.customerName ||
-        item?.name ||
-        ""
-    ).trim();
+  const normalizeText = (value) => {
+    return String(value ?? "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
   };
-
-  // =====================================================
-  // CUSTOMER MOBILE
-  // =====================================================
-
-  const getCustomerMobile = (item) => {
-    return String(
-      item?.mobile ||
-        item?.phone ||
-        item?.customerMobile ||
-        ""
-    ).trim();
-  };
-
-  // =====================================================
-  // NORMALIZE
-  // =====================================================
 
   const normalizeName = (value) => {
-    return String(value || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, " ");
+    return normalizeText(value);
   };
 
   const normalizeMobile = (value) => {
-    return String(value || "")
-      .replace(/\D/g, "")
-      .slice(-10);
+    return String(value ?? "").replace(/\D/g, "").slice(-10);
   };
-
-  // =====================================================
-  // CUSTOMER KEY
-  // =====================================================
 
   const makeCustomerKey = (name, mobile) => {
-    const cleanName = normalizeName(name);
-    const cleanMobile = normalizeMobile(mobile);
+    const m = normalizeMobile(mobile);
+    const n = normalizeName(name);
 
-    if (cleanMobile) {
-      return cleanMobile;
-    }
+    if (m) return `mobile:${m}`;
+    if (n) return `name:${n}`;
 
-    if (cleanName) {
-      return cleanName;
-    }
-
-    return "cash customer";
+    return "";
   };
 
-  // =====================================================
-  // DATE / TIME HELPER
-  // Latest activity के लिए
-  // =====================================================
+  // =========================================================
+  // CUSTOMER NAME — ROBUST
+  // =========================================================
 
-  const getActivityTime = (item) => {
-    if (!item) {
-      return 0;
+  const getCustomerName = (item) => {
+    if (!item) return "";
+
+    const direct =
+      item.customer ??
+      item.customerName ??
+      item.name ??
+      item.partyName ??
+      item.party ??
+      item.clientName ??
+      item.customer_name ??
+      item.customername ??
+      "";
+
+    if (typeof direct === "string" && direct.trim()) {
+      return direct.trim();
     }
 
-    const directFields = [
-      item?.createdAt,
-      item?.updatedAt,
-      item?.timestamp,
-      item?.createdDateTime,
-      item?.billDateTime
-    ];
+    // Nested customer object support
+    if (item.customer && typeof item.customer === "object") {
+      return (
+        item.customer.name ||
+        item.customer.customerName ||
+        item.customer.customer_name ||
+        ""
+      );
+    }
 
-    for (const value of directFields) {
-      if (value) {
-        const time = new Date(value).getTime();
+    if (item.customerDetails && typeof item.customerDetails === "object") {
+      return (
+        item.customerDetails.name ||
+        item.customerDetails.customerName ||
+        item.customerDetails.customer_name ||
+        ""
+      );
+    }
 
-        if (Number.isFinite(time)) {
-          return time;
-        }
+    return "";
+  };
+
+  // =========================================================
+  // CUSTOMER MOBILE — ROBUST
+  // =========================================================
+
+  const getCustomerMobile = (item) => {
+    if (!item) return "";
+
+    const direct =
+      item.mobile ??
+      item.phone ??
+      item.customerMobile ??
+      item.customerPhone ??
+      item.partyMobile ??
+      item.partyPhone ??
+      item.clientMobile ??
+      item.customer_mobile ??
+      item.customer_phone ??
+      "";
+
+    if (
+      typeof direct === "string" ||
+      typeof direct === "number"
+    ) {
+      if (String(direct).trim()) {
+        return String(direct).trim();
       }
     }
 
-    const date = item?.date ||
-      item?.billDate ||
-      item?.createdDate ||
-      "";
+    // Nested customer object
+    if (item.customer && typeof item.customer === "object") {
+      return (
+        item.customer.mobile ||
+        item.customer.phone ||
+        item.customer.customerMobile ||
+        item.customer.customerPhone ||
+        ""
+      );
+    }
 
-    const time = item?.time || "";
+    if (item.customerDetails && typeof item.customerDetails === "object") {
+      return (
+        item.customerDetails.mobile ||
+        item.customerDetails.phone ||
+        item.customerDetails.customerMobile ||
+        ""
+      );
+    }
 
-    if (date || time) {
-      const parsed = new Date(
-        `${date} ${time}`
-      ).getTime();
+    return "";
+  };
 
-      if (Number.isFinite(parsed)) {
-        return parsed;
+  // =========================================================
+  // ACTIVITY TIME
+  // =========================================================
+
+  const getActivityTime = (item) => {
+    if (!item) return 0;
+
+    const candidates = [
+      item.updatedAt,
+      item.createdAt,
+      item.date,
+      item.billDate,
+      item.created_at,
+      item.updated_at,
+      item.timestamp,
+    ];
+
+    for (const value of candidates) {
+      if (!value) continue;
+
+      const time = new Date(value).getTime();
+
+      if (Number.isFinite(time)) {
+        return time;
+      }
+
+      const numeric = Number(value);
+
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric;
       }
     }
 
     return 0;
   };
 
-  // =====================================================
+  // =========================================================
   // BILL TOTAL
-  // =====================================================
+  // =========================================================
 
   const getBillTotal = (bill) => {
-    const possibleValues = [
-      bill?.total,
-      bill?.grandTotal,
-      bill?.totalAmount,
-      bill?.billTotal,
-      bill?.netTotal,
-      bill?.amount
+    if (!bill) return 0;
+
+    const directFields = [
+      "total",
+      "grandTotal",
+      "totalAmount",
+      "billTotal",
+      "netTotal",
+      "amount",
+      "finalTotal",
+      "payableAmount",
+      "netAmount",
+      "grand_total",
+      "total_amount",
     ];
 
-    for (const value of possibleValues) {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        const number = Number(value);
+    for (const field of directFields) {
+      const value = Number(bill[field]);
 
-        if (
-          Number.isFinite(number) &&
-          number >= 0
-        ) {
-          return roundMoney(number);
+      if (Number.isFinite(value)) {
+        return roundMoney(value);
+      }
+    }
+
+    // Nested totals
+    if (bill.summary && typeof bill.summary === "object") {
+      const nestedFields = [
+        "total",
+        "grandTotal",
+        "totalAmount",
+        "netTotal",
+        "amount",
+      ];
+
+      for (const field of nestedFields) {
+        const value = Number(bill.summary[field]);
+
+        if (Number.isFinite(value)) {
+          return roundMoney(value);
         }
       }
     }
 
-    if (Array.isArray(bill?.items)) {
-      const total = bill.items.reduce(
-        (sum, item) => {
-          const qty = Number(
-            item?.quantity ??
-              item?.qty ??
-              0
-          );
+    // Calculate from items
+    const items =
+      bill.items ||
+      bill.billItems ||
+      bill.products ||
+      bill.medicines ||
+      [];
 
-          const rate = Number(
-            item?.saleRate ??
-              item?.sellingRate ??
-              item?.mrp ??
-              item?.rate ??
-              0
-          );
+    if (Array.isArray(items)) {
+      let total = 0;
 
-          if (
-            !Number.isFinite(qty) ||
-            !Number.isFinite(rate)
-          ) {
-            return sum;
-          }
+      items.forEach((item) => {
+        const qty = Number(
+          item.quantity ??
+            item.qty ??
+            item.saleQty ??
+            item.soldQuantity ??
+            0
+        );
 
-          return sum + qty * rate;
-        },
-        0
-      );
+        const rate = Number(
+          item.saleRate ??
+            item.sellingRate ??
+            item.rate ??
+            item.mrp ??
+            item.price ??
+            0
+        );
+
+        const itemTotal = Number(
+          item.total ??
+            item.amount ??
+            item.itemTotal ??
+            item.lineTotal
+        );
+
+        if (Number.isFinite(itemTotal)) {
+          total += itemTotal;
+        } else {
+          total += qty * rate;
+        }
+      });
 
       return roundMoney(total);
     }
@@ -279,278 +301,219 @@ function CustomerLedger({ setPage, goBack }) {
     return 0;
   };
 
-  // =====================================================
+  // =========================================================
   // BILL PAID
-  // =====================================================
+  // =========================================================
 
   const getBillPaid = (bill) => {
-    const billTimeFields = [
-      bill?.billPaid,
-      bill?.paidNow,
-      bill?.jama,
-      bill?.paidAtBill,
-      bill?.receivedAtBill,
-      bill?.paymentReceived
+    if (!bill) return 0;
+
+    const directFields = [
+      "billPaid",
+      "paidNow",
+      "jama",
+      "paidAtBill",
+      "paymentReceived",
+      "receivedAtBill",
+      "paidAmount",
+      "receivedAmount",
+      "received",
+      "paid",
+      "payment",
+      "cashReceived",
+      "cashPaid",
+      "paid_amount",
     ];
 
-    for (const value of billTimeFields) {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        const number = Number(value);
+    for (const field of directFields) {
+      const value = Number(bill[field]);
 
-        if (
-          Number.isFinite(number) &&
-          number >= 0
-        ) {
-          return roundMoney(number);
-        }
-      }
-    }
-
-    const oldPaidFields = [
-      bill?.paidAmount,
-      bill?.receivedAmount,
-      bill?.paid
-    ];
-
-    for (const value of oldPaidFields) {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        const number = Number(value);
-
-        if (
-          Number.isFinite(number) &&
-          number >= 0
-        ) {
-          return roundMoney(number);
-        }
-      }
-    }
-
-    const total = getBillTotal(bill);
-
-    const pendingFields = [
-      bill?.pendingAmount,
-      bill?.udhari,
-      bill?.creditAmount,
-      bill?.pending
-    ];
-
-    for (const value of pendingFields) {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        const pending = Number(value);
-
-        if (Number.isFinite(pending)) {
-          return roundMoney(
-            Math.max(
-              total - pending,
-              0
-            )
-          );
-        }
+      if (Number.isFinite(value)) {
+        return roundMoney(value);
       }
     }
 
     return 0;
   };
 
-  // =====================================================
-  // BILL ADVANCE ADJUSTED
-  // =====================================================
+  // =========================================================
+  // ADVANCE ADJUSTED IN BILL
+  // =========================================================
 
   const getBillAdvanceAdjusted = (bill) => {
+    if (!bill) return 0;
+
     const fields = [
-      bill?.advanceAdjusted,
-      bill?.advanceAdjustment,
-      bill?.adjustedAdvance,
-      bill?.advanceUsed,
-      bill?.advanceUsedAmount,
-      bill?.oldAdvanceAdjusted,
-      bill?.advanceApplied
+      "advanceAdjusted",
+      "advanceAdjustment",
+      "adjustedAdvance",
+      "advanceUsed",
+      "advanceUsedAmount",
+      "oldAdvanceAdjusted",
+      "advanceApplied",
+      "advance_adjusted",
+      "advance_adjustment",
+      "advance_used",
+      "advanceAppliedAmount",
     ];
 
-    for (const value of fields) {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        const number = Number(value);
+    for (const field of fields) {
+      const value = Number(bill[field]);
 
-        if (
-          Number.isFinite(number) &&
-          number >= 0
-        ) {
-          return roundMoney(number);
-        }
+      if (Number.isFinite(value)) {
+        return roundMoney(value);
       }
     }
 
     return 0;
   };
 
-  // =====================================================
+  // =========================================================
   // BILL UDHARI
-  // =====================================================
+  // =========================================================
 
   const getBillUdhari = (bill) => {
-    const total = getBillTotal(bill);
-    const paid = getBillPaid(bill);
-    const advanceAdjusted =
-      getBillAdvanceAdjusted(bill);
+    if (!bill) return 0;
 
-    return roundMoney(
-      Math.max(
-        total -
-          paid -
-          advanceAdjusted,
-        0
-      )
-    );
-  };
-
-  // =====================================================
-  // PAYMENT AMOUNT
-  // =====================================================
-
-  const getPaymentAmount = (payment) => {
-    const values = [
-      payment?.amount,
-      payment?.paidAmount,
-      payment?.payment
+    const fields = [
+      "udhari",
+      "credit",
+      "creditAmount",
+      "pending",
+      "pendingAmount",
+      "balance",
+      "due",
+      "dueAmount",
+      "remaining",
+      "remainingAmount",
+      "udhariAmount",
+      "credit_amount",
+      "pending_amount",
     ];
 
-    for (const value of values) {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        const number = Number(value);
+    for (const field of fields) {
+      const value = Number(bill[field]);
 
-        if (
-          Number.isFinite(number) &&
-          number >= 0
-        ) {
-          return roundMoney(number);
-        }
+      if (Number.isFinite(value)) {
+        return roundMoney(value);
+      }
+    }
+
+    const total = getBillTotal(bill);
+    const paid = getBillPaid(bill);
+    const advanceAdjusted = getBillAdvanceAdjusted(bill);
+
+    const calculated = total - paid - advanceAdjusted;
+
+    return calculated > 0 ? roundMoney(calculated) : 0;
+  };
+
+  // =========================================================
+  // PAYMENT AMOUNT
+  // =========================================================
+
+  const getPaymentAmount = (payment) => {
+    if (!payment) return 0;
+
+    const fields = [
+      "amount",
+      "paymentAmount",
+      "paidAmount",
+      "jama",
+      "received",
+      "receivedAmount",
+      "payment",
+      "value",
+    ];
+
+    for (const field of fields) {
+      const value = Number(payment[field]);
+
+      if (Number.isFinite(value)) {
+        return roundMoney(value);
       }
     }
 
     return 0;
   };
 
-  // =====================================================
+  // =========================================================
   // SAVED UDHARI ADJUSTMENT
-  // =====================================================
+  // =========================================================
 
   const getSavedUdhariAdjustment = (payment) => {
-    if (
-      payment?.adjustedToUdhari !== undefined &&
-      payment?.adjustedToUdhari !== null &&
-      payment?.adjustedToUdhari !== ""
-    ) {
-      return roundMoney(
-        Math.max(
-          Number(
-            payment.adjustedToUdhari
-          ) || 0,
-          0
-        )
-      );
-    }
+    if (!payment) return 0;
 
-    return getPaymentAmount(payment);
-  };
+    const fields = [
+      "udhariAdjustment",
+      "adjustedUdhari",
+      "creditAdjustment",
+      "adjustedCredit",
+    ];
 
-  // =====================================================
-  // SAVED ADVANCE
-  // =====================================================
+    for (const field of fields) {
+      const value = Number(payment[field]);
 
-  const getSavedAdvance = (payment) => {
-    if (
-      payment?.advanceAmount !== undefined &&
-      payment?.advanceAmount !== null &&
-      payment?.advanceAmount !== ""
-    ) {
-      return roundMoney(
-        Math.max(
-          Number(
-            payment.advanceAmount
-          ) || 0,
-          0
-        )
-      );
-    }
-
-    if (
-      payment?.adjustedToAdvance !== undefined &&
-      payment?.adjustedToAdvance !== null &&
-      payment?.adjustedToAdvance !== ""
-    ) {
-      return roundMoney(
-        Math.max(
-          Number(
-            payment.adjustedToAdvance
-          ) || 0,
-          0
-        )
-      );
+      if (Number.isFinite(value)) {
+        return roundMoney(value);
+      }
     }
 
     return 0;
   };
 
-  // =====================================================
+  // =========================================================
+  // SAVED ADVANCE
+  // =========================================================
+
+  const getSavedAdvance = (item) => {
+    if (!item) return 0;
+
+    const fields = [
+      "advance",
+      "advanceAmount",
+      "customerAdvance",
+      "advancePaid",
+      "advanceReceived",
+      "amount",
+    ];
+
+    for (const field of fields) {
+      const value = Number(item[field]);
+
+      if (Number.isFinite(value)) {
+        return roundMoney(value);
+      }
+    }
+
+    return 0;
+  };
+
+  // =========================================================
   // CUSTOMER MATCH
-  // =====================================================
+  // =========================================================
 
-  const customerMatches = (
-    item,
-    customer
-  ) => {
-    const itemName =
-      normalizeName(
-        getCustomerName(item)
-      );
+  const customerMatches = (item, customer) => {
+    if (!item || !customer) return false;
 
-    const itemMobile =
-      normalizeMobile(
-        getCustomerMobile(item)
-      );
+    const itemName = normalizeName(getCustomerName(item));
+    const itemMobile = normalizeMobile(getCustomerMobile(item));
 
-    const customerName =
-      normalizeName(
-        customer?.name
-      );
-
-    const customerMobile =
-      normalizeMobile(
-        customer?.mobile
-      );
+    const customerName = normalizeName(customer.name);
+    const customerMobile = normalizeMobile(customer.mobile);
 
     if (
-      customerMobile &&
       itemMobile &&
-      customerMobile === itemMobile
+      customerMobile &&
+      itemMobile === customerMobile
     ) {
       return true;
     }
 
     if (
-      customerName &&
       itemName &&
-      customerName === itemName
+      customerName &&
+      itemName === customerName
     ) {
       return true;
     }
@@ -558,1252 +521,1307 @@ function CustomerLedger({ setPage, goBack }) {
     return false;
   };
 
-  // =====================================================
-  // CURRENT REMAINING ADVANCE
-  // =====================================================
+  // =========================================================
+  // FETCH ONLINE BILLS
+  // =========================================================
 
-  const getCurrentAdvance = (customer) => {
-    const totalAdvanceFromPayments =
-      customerPayments
-        .filter((payment) =>
-          customerMatches(
-            payment,
-            customer
-          )
-        )
-        .reduce(
-          (sum, payment) => {
-            const advance =
-              getSavedAdvance(
-                payment
-              );
+  useEffect(() => {
+    let mounted = true;
 
-            return (
-              sum +
-              Math.max(
-                Number(advance) || 0,
-                0
-              )
-            );
-          },
-          0
+    const fetchBills = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/bills`, {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Bills API HTTP ${response.status}`
+          );
+        }
+
+        const data = await response.json();
+
+        let billsData = [];
+
+        if (Array.isArray(data)) {
+          billsData = data;
+        } else if (
+          data &&
+          Array.isArray(data.bills)
+        ) {
+          billsData = data.bills;
+        } else if (
+          data &&
+          Array.isArray(data.data)
+        ) {
+          billsData = data.data;
+        }
+
+        if (mounted) {
+          console.log(
+            "✅ Customer Ledger: Online bills loaded:",
+            billsData.length
+          );
+
+          console.log(
+            "🧾 ONLINE BILL DATA:",
+            billsData
+          );
+
+          setOnlineBills(billsData);
+        }
+      } catch (error) {
+        console.error(
+          "❌ Customer Ledger bills fetch error:",
+          error
         );
 
-    const totalAdvanceUsedInBills =
-      bills
-        .filter((bill) =>
-          customerMatches(
-            bill,
-            customer
-          )
-        )
-        .reduce(
-          (sum, bill) => {
-            const used =
-              getBillAdvanceAdjusted(
-                bill
-              );
+        if (mounted) {
+          setOnlineBills([]);
+        }
+      }
+    };
 
-            return (
-              sum +
-              Math.max(
-                Number(used) || 0,
-                0
-              )
-            );
-          },
-          0
-        );
+    fetchBills();
 
-    return roundMoney(
-      Math.max(
-        totalAdvanceFromPayments -
-          totalAdvanceUsedInBills,
-        0
-      )
+    return () => {
+      mounted = false;
+    };
+  }, [refresh]);
+
+  // =========================================================
+  // AUTO REFRESH
+  // =========================================================
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      setRefresh((v) => v + 1);
+    };
+
+    window.addEventListener(
+      "customerLedgerUpdated",
+      handleRefresh
     );
-  };
 
-  // =====================================================
-  // ALL CUSTOMERS
-  //
-  // IMPORTANT:
-  // Latest Bill / Payment / Advance activity
-  // वाला Customer सबसे ऊपर
-  // =====================================================
+    window.addEventListener(
+      "advanceUpdated",
+      handleRefresh
+    );
+
+    window.addEventListener(
+      "billingUpdated",
+      handleRefresh
+    );
+
+    window.addEventListener(
+      "storage",
+      handleRefresh
+    );
+
+    window.addEventListener(
+      "focus",
+      handleRefresh
+    );
+
+    return () => {
+      window.removeEventListener(
+        "customerLedgerUpdated",
+        handleRefresh
+      );
+
+      window.removeEventListener(
+        "advanceUpdated",
+        handleRefresh
+      );
+
+      window.removeEventListener(
+        "billingUpdated",
+        handleRefresh
+      );
+
+      window.removeEventListener(
+        "storage",
+        handleRefresh
+      );
+
+      window.removeEventListener(
+        "focus",
+        handleRefresh
+      );
+    };
+  }, []);
+
+  // =========================================================
+  // LOCAL DATA
+  // =========================================================
+
+  const localBills = useMemo(
+    () => loadArray("bills"),
+    [refresh]
+  );
+
+  const customerPayments = useMemo(
+    () => loadArray("customerPayments"),
+    [refresh]
+  );
+
+  const advances = useMemo(
+    () => loadArray("advances"),
+    [refresh]
+  );
+
+  const customerAdvances = useMemo(
+    () => loadArray("customerAdvances"),
+    [refresh]
+  );
+
+  // =========================================================
+  // MERGE ONLINE + LOCAL BILLS
+  // =========================================================
+
+  const bills = useMemo(() => {
+    const result = [];
+    const seen = new Set();
+
+    const addBill = (bill) => {
+      if (!bill || typeof bill !== "object") return;
+
+      const id =
+        bill.id ??
+        bill.billId ??
+        bill.billNumber ??
+        bill.billNo ??
+        "";
+
+      let key = "";
+
+      if (id !== "") {
+        key = `id:${String(id)}`;
+      } else {
+        key = `json:${JSON.stringify(bill)}`;
+      }
+
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      result.push(bill);
+    };
+
+    // ONLINE FIRST
+    onlineBills.forEach(addBill);
+
+    // LOCAL SECOND
+    localBills.forEach(addBill);
+
+    return result.sort(
+      (a, b) =>
+        getActivityTime(b) -
+        getActivityTime(a)
+    );
+  }, [onlineBills, localBills]);
+
+  // =========================================================
+  // BUILD CUSTOMER LIST
+  // =========================================================
 
   const customers = useMemo(() => {
     const map = new Map();
 
     const addCustomer = (
       item,
-      activityTime = 0
+      type = "unknown"
     ) => {
-      const name =
-        getCustomerName(item);
+      if (!item) return;
 
-      const mobile =
-        getCustomerMobile(item);
+      const name = getCustomerName(item);
+      const mobile = getCustomerMobile(item);
 
-      if (
-        !name ||
-        normalizeName(name) ===
-          "cash customer"
-      ) {
-        return;
-      }
+      if (!name && !mobile) return;
 
-      const key =
-        makeCustomerKey(
-          name,
-          mobile
-        );
+      const key = makeCustomerKey(
+        name,
+        mobile
+      );
+
+      if (!key) return;
 
       if (!map.has(key)) {
         map.set(key, {
-          name,
-          mobile,
-          latestActivity:
-            activityTime || 0
+          key,
+          name:
+            name ||
+            "Customer",
+          mobile:
+            mobile ||
+            "",
+          types: [type],
         });
       } else {
-        const existing =
-          map.get(key);
+        const existing = map.get(key);
 
         if (
-          activityTime >
-          (existing.latestActivity || 0)
+          name &&
+          (!existing.name ||
+            existing.name === "Customer")
         ) {
-          existing.latestActivity =
-            activityTime;
+          existing.name = name;
+        }
+
+        if (mobile && !existing.mobile) {
+          existing.mobile = mobile;
         }
 
         if (
-          !existing.mobile &&
-          mobile
+          type &&
+          !existing.types.includes(type)
         ) {
-          existing.mobile = mobile;
+          existing.types.push(type);
         }
       }
     };
 
-    // -------------------------------------------------
-    // BILLS
-    // -------------------------------------------------
-
-    bills.forEach((bill) => {
-      addCustomer(
-        bill,
-        getActivityTime(bill)
-      );
-    });
-
-    // -------------------------------------------------
-    // PAYMENTS
-    // -------------------------------------------------
-
-    customerPayments.forEach(
-      (payment) => {
-        addCustomer(
-          payment,
-          getActivityTime(
-            payment
-          )
-        );
-      }
+    bills.forEach((bill) =>
+      addCustomer(bill, "bill")
     );
 
-    // -------------------------------------------------
-    // ADVANCE
-    // -------------------------------------------------
+    customerPayments.forEach((payment) =>
+      addCustomer(payment, "payment")
+    );
 
-    if (
-      Array.isArray(advances)
-    ) {
-      advances.forEach(
-        (record) => {
-          addCustomer(
-            record,
-            getActivityTime(
-              record
-            )
-          );
-        }
-      );
-    }
+    advances.forEach((advance) =>
+      addCustomer(advance, "advance")
+    );
 
-    // -------------------------------------------------
-    // SORT:
-    // LATEST FIRST
-    // -------------------------------------------------
+    customerAdvances.forEach((advance) =>
+      addCustomer(advance, "customerAdvance")
+    );
 
-    return Array.from(
-      map.values()
-    ).sort(
-      (a, b) => {
-        const timeA =
-          Number(
-            a.latestActivity || 0
-          );
-
-        const timeB =
-          Number(
-            b.latestActivity || 0
-          );
-
-        if (
-          timeA !== timeB
-        ) {
-          return timeB - timeA;
-        }
-
-        return a.name.localeCompare(
-          b.name
-        );
-      }
+    return Array.from(map.values()).sort(
+      (a, b) =>
+        a.name.localeCompare(
+          b.name,
+          undefined,
+          {
+            sensitivity: "base",
+          }
+        )
     );
   }, [
     bills,
     customerPayments,
     advances,
-    refresh
+    customerAdvances,
   ]);
 
-  // =====================================================
-  // SEARCH
-  // =====================================================
+  // =========================================================
+  // FILTER CUSTOMER
+  // =========================================================
 
-  const filteredCustomers =
-    customers.filter(
-      (customer) => {
-        const text =
-          `${customer.name} ${customer.mobile}`
-            .toLowerCase();
+  const filteredCustomers = useMemo(() => {
+    const q = normalizeText(search);
 
-        return text.includes(
-          search
-            .trim()
-            .toLowerCase()
+    if (!q) return customers;
+
+    const digits = normalizeMobile(search);
+
+    return customers.filter((customer) => {
+      const nameMatch =
+        normalizeName(customer.name).includes(q);
+
+      const mobileMatch =
+        normalizeMobile(customer.mobile).includes(
+          digits
         );
-      }
-    );
 
-  // =====================================================
+      return nameMatch || mobileMatch;
+    });
+  }, [customers, search]);
+
+  // =========================================================
   // SELECTED CUSTOMER BILLS
-  // =====================================================
+  // =========================================================
 
-  const selectedBills =
-    useMemo(() => {
-      if (!selectedCustomer) {
-        return [];
-      }
+  const selectedBills = useMemo(() => {
+    if (!selectedCustomer) return [];
 
-      return bills
-        .filter(
-          (bill) =>
-            customerMatches(
-              bill,
-              selectedCustomer
-            )
+    return bills
+      .filter((bill) =>
+        customerMatches(
+          bill,
+          selectedCustomer
         )
-        .slice()
-        .sort(
-          (a, b) =>
-            getActivityTime(b) -
-            getActivityTime(a)
-        );
-    }, [
-      bills,
-      selectedCustomer
-    ]);
+      )
+      .sort(
+        (a, b) =>
+          getActivityTime(b) -
+          getActivityTime(a)
+      );
+  }, [bills, selectedCustomer]);
 
-  // =====================================================
+  // =========================================================
   // SELECTED CUSTOMER PAYMENTS
-  // =====================================================
+  // =========================================================
 
-  const selectedPayments =
-    useMemo(() => {
-      if (!selectedCustomer) {
-        return [];
-      }
+  const selectedPayments = useMemo(() => {
+    if (!selectedCustomer) return [];
 
-      return customerPayments
-        .filter(
-          (payment) =>
-            customerMatches(
-              payment,
-              selectedCustomer
-            )
+    return customerPayments
+      .filter((payment) =>
+        customerMatches(
+          payment,
+          selectedCustomer
         )
-        .slice()
-        .sort(
-          (a, b) =>
-            getActivityTime(b) -
-            getActivityTime(a)
-        );
-    }, [
-      customerPayments,
-      selectedCustomer
-    ]);
+      )
+      .sort(
+        (a, b) =>
+          getActivityTime(b) -
+          getActivityTime(a)
+      );
+  }, [
+    customerPayments,
+    selectedCustomer,
+  ]);
 
-  // =====================================================
-  // FINAL CUSTOMER CALCULATION
-  // =====================================================
+  // =========================================================
+  // CURRENT ADVANCE
+  // =========================================================
 
-  const customerCalculation =
-    useMemo(() => {
-      const totalBill =
-        roundMoney(
-          selectedBills.reduce(
-            (sum, bill) =>
-              sum +
-              getBillTotal(
-                bill
-              ),
-            0
-          )
-        );
+  const getCurrentAdvance = (customer) => {
+    if (!customer) return 0;
 
-      const billPaid =
-        roundMoney(
-          selectedBills.reduce(
-            (sum, bill) =>
-              sum +
-              getBillPaid(
-                bill
-              ),
-            0
-          )
-        );
+    let totalAdvance = 0;
 
-      const advanceAdjustedInBills =
-        roundMoney(
-          selectedBills.reduce(
-            (sum, bill) =>
-              sum +
-              getBillAdvanceAdjusted(
-                bill
-              ),
-            0
-          )
-        );
-
-      const originalUdhari =
-        roundMoney(
-          Math.max(
-            totalBill -
-              billPaid -
-              advanceAdjustedInBills,
-            0
-          )
-        );
-
-      const laterPayment =
-        roundMoney(
-          selectedPayments.reduce(
-            (sum, payment) =>
-              sum +
-              getPaymentAmount(
-                payment
-              ),
-            0
-          )
-        );
-
-      const savedUdhariPayment =
-        roundMoney(
-          selectedPayments.reduce(
-            (sum, payment) =>
-              sum +
-              getSavedUdhariAdjustment(
-                payment
-              ),
-            0
-          )
-        );
-
-      const udhariPayment =
-        roundMoney(
-          Math.min(
-            savedUdhariPayment,
-            originalUdhari
-          )
-        );
-
-      const advance =
-        selectedCustomer
-          ? getCurrentAdvance(
-              selectedCustomer
-            )
-          : 0;
-
-      const bakiUdhari =
-        roundMoney(
-          Math.max(
-            originalUdhari -
-              udhariPayment,
-            0
-          )
-        );
-
-      return {
-        totalBill,
-        billPaid,
-        advanceAdjustedInBills,
-        originalUdhari,
-        laterPayment,
-        udhariPayment,
-        bakiUdhari,
-        advance
-      };
-    }, [
-      selectedBills,
-      selectedPayments,
-      selectedCustomer,
-      advances,
-      customerAdvances,
-      refresh
-    ]);
-
-  // =====================================================
-  // CUSTOMER LIST CALCULATION
-  // =====================================================
-
-  const getCustomerCalculation =
-    (customer) => {
-      const customerBills =
-        bills.filter(
-          (bill) =>
-            customerMatches(
-              bill,
-              customer
-            )
-        );
-
-      const customerPaymentList =
-        customerPayments.filter(
-          (payment) =>
-            customerMatches(
-              payment,
-              customer
-            )
-        );
-
-      const totalBill =
-        roundMoney(
-          customerBills.reduce(
-            (sum, bill) =>
-              sum +
-              getBillTotal(
-                bill
-              ),
-            0
-          )
-        );
-
-      const billPaid =
-        roundMoney(
-          customerBills.reduce(
-            (sum, bill) =>
-              sum +
-              getBillPaid(
-                bill
-              ),
-            0
-          )
-        );
-
-      const advanceAdjustedInBills =
-        roundMoney(
-          customerBills.reduce(
-            (sum, bill) =>
-              sum +
-              getBillAdvanceAdjusted(
-                bill
-              ),
-            0
-          )
-        );
-
-      const originalUdhari =
-        roundMoney(
-          Math.max(
-            totalBill -
-              billPaid -
-              advanceAdjustedInBills,
-            0
-          )
-        );
-
-      const laterPayment =
-        roundMoney(
-          customerPaymentList.reduce(
-            (sum, payment) =>
-              sum +
-              getPaymentAmount(
-                payment
-              ),
-            0
-          )
-        );
-
-      const savedUdhariPayment =
-        roundMoney(
-          customerPaymentList.reduce(
-            (sum, payment) =>
-              sum +
-              getSavedUdhariAdjustment(
-                payment
-              ),
-            0
-          )
-        );
-
-      const udhariPayment =
-        roundMoney(
-          Math.min(
-            savedUdhariPayment,
-            originalUdhari
-          )
-        );
-
-      const advance =
-        getCurrentAdvance(
+    advances.forEach((item) => {
+      if (
+        customerMatches(
+          item,
           customer
-        );
+        )
+      ) {
+        totalAdvance += getSavedAdvance(item);
+      }
+    });
 
-      const bakiUdhari =
-        roundMoney(
-          Math.max(
-            originalUdhari -
-              udhariPayment,
-            0
-          )
-        );
+    customerAdvances.forEach((item) => {
+      if (
+        customerMatches(
+          item,
+          customer
+        )
+      ) {
+        totalAdvance += getSavedAdvance(item);
+      }
+    });
 
-      return {
-        totalBill,
-        billPaid,
-        advanceAdjustedInBills,
-        originalUdhari,
-        laterPayment,
-        udhariPayment,
-        bakiUdhari,
-        advance
-      };
-    };
+    selectedBillsForAdvance:
+    selectedBills.forEach((bill) => {
+      totalAdvance -= getBillAdvanceAdjusted(
+        bill
+      );
+    });
 
-  // =====================================================
-  // SELECT CUSTOMER
-  // =====================================================
+    return roundMoney(
+      Math.max(0, totalAdvance)
+    );
+  };
 
-  const openCustomer = (
+  // =========================================================
+  // CUSTOMER CALCULATION
+  // =========================================================
+
+  const getCustomerCalculation = (
     customer
   ) => {
-    setSelectedCustomer(
-      customer
+    if (!customer) {
+      return {
+        totalBills: 0,
+        totalPaid: 0,
+        totalUdhari: 0,
+        totalPayment: 0,
+        totalAdvance: 0,
+        totalAdvanceAdjusted: 0,
+        finalBalance: 0,
+      };
+    }
+
+    const customerBills = bills.filter(
+      (bill) =>
+        customerMatches(
+          bill,
+          customer
+        )
     );
 
-    setShowBills(false);
+    const customerPaymentList =
+      customerPayments.filter(
+        (payment) =>
+          customerMatches(
+            payment,
+            customer
+          )
+      );
 
-    localStorage.setItem(
-      "selectedCustomerForPayment",
-      JSON.stringify(
-        customer
-      )
+    let totalBills = 0;
+    let totalPaid = 0;
+    let totalUdhari = 0;
+    let totalAdvanceAdjusted = 0;
+
+    customerBills.forEach((bill) => {
+      const total = getBillTotal(bill);
+      const paid = getBillPaid(bill);
+      const advanceAdjusted =
+        getBillAdvanceAdjusted(bill);
+
+      totalBills += total;
+      totalPaid += paid;
+      totalAdvanceAdjusted +=
+        advanceAdjusted;
+
+      totalUdhari += getBillUdhari(bill);
+    });
+
+    let totalPayment = 0;
+
+    customerPaymentList.forEach(
+      (payment) => {
+        totalPayment +=
+          getPaymentAmount(payment);
+
+        totalUdhari -=
+          getSavedUdhariAdjustment(payment);
+      }
     );
+
+    totalUdhari = Math.max(
+      0,
+      totalUdhari
+    );
+
+    const totalAdvance =
+      getCurrentAdvance(customer);
+
+    const finalBalance =
+      totalUdhari -
+      totalPayment;
+
+    return {
+      totalBills: roundMoney(totalBills),
+      totalPaid: roundMoney(totalPaid),
+      totalUdhari: roundMoney(totalUdhari),
+      totalPayment: roundMoney(totalPayment),
+      totalAdvance: roundMoney(totalAdvance),
+      totalAdvanceAdjusted:
+        roundMoney(
+          totalAdvanceAdjusted
+        ),
+      finalBalance: roundMoney(
+        finalBalance
+      ),
+    };
   };
 
-  // =====================================================
-  // CLOSE CUSTOMER
-  // =====================================================
+  const customerCalculation = useMemo(
+    () =>
+      getCustomerCalculation(
+        selectedCustomer
+      ),
+    [
+      selectedCustomer,
+      bills,
+      customerPayments,
+      advances,
+      customerAdvances,
+    ]
+  );
 
-  const closeCustomer = () => {
-    setSelectedCustomer(null);
-    setShowBills(false);
+  // =========================================================
+  // SELECT CUSTOMER
+  // =========================================================
+
+  const handleSelectCustomer = (
+    customer
+  ) => {
+    setSelectedCustomer(customer);
+    setShowBills(true);
   };
 
-  // =====================================================
-  // OPEN CUSTOMER PAYMENT
-  // =====================================================
+  // =========================================================
+  // REFRESH
+  // =========================================================
 
-  const openPayment = () => {
-    if (!selectedCustomer) {
+  const handleRefresh = () => {
+    setRefresh((v) => v + 1);
+  };
+
+  // =========================================================
+  // BACK
+  // =========================================================
+
+  const handleBack = () => {
+    if (typeof goBack === "function") {
+      goBack();
       return;
     }
 
-    localStorage.setItem(
-      "selectedCustomerForPayment",
-      JSON.stringify(
-        selectedCustomer
-      )
-    );
-
-    if (
-      typeof setPage ===
-      "function"
-    ) {
-      setPage(
-        "customerPayment"
-      );
+    if (typeof setPage === "function") {
+      setPage("dashboard");
     }
   };
 
-  // =====================================================
-  // REFRESH
-  // =====================================================
-
-  const refreshLedger = () => {
-    setRefresh(
-      (value) => value + 1
-    );
-  };
-
-  // =====================================================
+  // =========================================================
   // UI
-  // =====================================================
+  // =========================================================
 
   return (
-    <div style={pageStyle}>
-
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#f5f7fa",
+        padding: "15px",
+        boxSizing: "border-box",
+      }}
+    >
       {/* HEADER */}
-
-      <div style={headerStyle}>
-
-        <div>
-          <h1 style={headerTitle}>
-            👥 Customer Ledger
-          </h1>
-
-          <div style={subtitle}>
-            Customer-wise Bill,
-            Payment & Udhari हिसाब
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={goBack}
-          style={backButton}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "10px",
+          flexWrap: "wrap",
+          marginBottom: "15px",
+        }}
+      >
+        <h2
+          style={{
+            margin: 0,
+            fontSize: "24px",
+          }}
         >
-          ⬅️ Dashboard
-        </button>
+          👤 Customer Ledger
+        </h2>
 
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            onClick={handleRefresh}
+            style={{
+              padding: "9px 14px",
+              border: "none",
+              borderRadius: "7px",
+              cursor: "pointer",
+              background: "#1976d2",
+              color: "#fff",
+              fontWeight: "600",
+            }}
+          >
+            🔄 Refresh
+          </button>
+
+          <button
+            onClick={handleBack}
+            style={{
+              padding: "9px 14px",
+              border: "none",
+              borderRadius: "7px",
+              cursor: "pointer",
+              background: "#555",
+              color: "#fff",
+              fontWeight: "600",
+            }}
+          >
+            ← Back
+          </button>
+        </div>
       </div>
 
       {/* SEARCH */}
+      <div
+        style={{
+          background: "#fff",
+          padding: "12px",
+          borderRadius: "10px",
+          marginBottom: "15px",
+          boxShadow:
+            "0 1px 5px rgba(0,0,0,0.08)",
+        }}
+      >
+        <input
+          type="text"
+          placeholder="🔍 Customer name / mobile search..."
+          value={search}
+          onChange={(e) =>
+            setSearch(e.target.value)
+          }
+          style={{
+            width: "100%",
+            padding: "12px",
+            boxSizing: "border-box",
+            border: "1px solid #ccc",
+            borderRadius: "7px",
+            fontSize: "16px",
+            outline: "none",
+          }}
+        />
+      </div>
 
-      {!selectedCustomer && (
-        <div style={cardStyle}>
-
-          <input
-            type="text"
-            placeholder="🔎 Customer Name या Mobile Search करें..."
-            value={search}
-            onChange={(e) =>
-              setSearch(
-                e.target.value
-              )
-            }
-            style={searchInput}
-          />
-
+      {/* CUSTOMER LIST */}
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: "10px",
+          overflow: "hidden",
+          boxShadow:
+            "0 1px 5px rgba(0,0,0,0.08)",
+          marginBottom: "15px",
+        }}
+      >
+        <div
+          style={{
+            padding: "12px",
+            fontWeight: "700",
+            borderBottom:
+              "1px solid #eee",
+          }}
+        >
+          Customers ({filteredCustomers.length})
         </div>
-      )}
 
-      {/* CUSTOMER TABLE */}
-
-      {!selectedCustomer && (
-        <div style={cardStyle}>
-
-          <div style={customerListHeader}>
-
-            <div>
-              <h2 style={sectionTitle}>
-                👥 Customers
-              </h2>
-
-              <div style={latestHint}>
-                ⬇️ Latest Customer सबसे ऊपर
-              </div>
-            </div>
-
-            <div style={customerCount}>
-              Total:{" "}
-              <b>
-                {filteredCustomers.length}
-              </b>
-            </div>
-
+        {filteredCustomers.length === 0 ? (
+          <div
+            style={{
+              padding: "25px",
+              textAlign: "center",
+              color: "#777",
+            }}
+          >
+            No customer found
           </div>
-
-          {filteredCustomers.length === 0 ? (
-            <div style={emptyBox}>
-              ⚠️ कोई Customer
-              उपलब्ध नहीं है।
-              <br />
-              <br />
-              पहले Billing में
-              Customer Name save
-              करें।
-            </div>
-          ) : (
-            <div
+        ) : (
+          <div
+            style={{
+              overflowX: "auto",
+            }}
+          >
+            <table
               style={{
-                overflowX: "auto",
-                width: "100%"
+                width: "100%",
+                borderCollapse:
+                  "collapse",
+                minWidth: "500px",
               }}
             >
+              <thead>
+                <tr
+                  style={{
+                    background:
+                      "#f0f2f5",
+                  }}
+                >
+                  <th
+                    style={{
+                      padding: "10px",
+                      textAlign: "left",
+                    }}
+                  >
+                    Customer
+                  </th>
 
-              <table
-                style={customerTableStyle}
-              >
+                  <th
+                    style={{
+                      padding: "10px",
+                      textAlign: "left",
+                    }}
+                  >
+                    Mobile
+                  </th>
 
-                <thead>
-                  <tr>
+                  <th
+                    style={{
+                      padding: "10px",
+                      textAlign: "right",
+                    }}
+                  >
+                    Bill
+                  </th>
 
-                    <th style={customerThStyle}>
-                      #
-                    </th>
+                  <th
+                    style={{
+                      padding: "10px",
+                      textAlign: "right",
+                    }}
+                  >
+                    Balance
+                  </th>
+                </tr>
+              </thead>
 
-                    <th style={customerThStyle}>
-                      Customer
-                    </th>
+              <tbody>
+                {filteredCustomers.map(
+                  (customer) => {
+                    const calc =
+                      getCustomerCalculation(
+                        customer
+                      );
 
-                    <th style={customerThStyle}>
-                      Mobile
-                    </th>
+                    const isSelected =
+                      selectedCustomer?.key ===
+                      customer.key;
 
-                    <th style={customerThStyle}>
-                      Total Bill
-                    </th>
-
-                    <th style={customerThStyle}>
-                      Bill Paid
-                    </th>
-
-                    <th style={customerThStyle}>
-                      Udhari
-                    </th>
-
-                    <th style={customerThStyle}>
-                      बाकी Udhari
-                    </th>
-
-                    <th style={customerThStyle}>
-                      Advance
-                    </th>
-
-                    <th style={customerThStyle}>
-                      Action
-                    </th>
-
-                  </tr>
-                </thead>
-
-                <tbody>
-
-                  {filteredCustomers.map(
-                    (
-                      customer,
-                      index
-                    ) => {
-
-                      const calc =
-                        getCustomerCalculation(
-                          customer
-                        );
-
-                      return (
-                        <tr
-                          key={makeCustomerKey(
-                            customer.name,
-                            customer.mobile
-                          )}
-                          onClick={() =>
-                            openCustomer(
-                              customer
-                            )
-                          }
+                    return (
+                      <tr
+                        key={
+                          customer.key
+                        }
+                        onClick={() =>
+                          handleSelectCustomer(
+                            customer
+                          )
+                        }
+                        style={{
+                          cursor: "pointer",
+                          background:
+                            isSelected
+                              ? "#eaf3ff"
+                              : "#fff",
+                          borderBottom:
+                            "1px solid #eee",
+                        }}
+                      >
+                        <td
                           style={{
-                            ...customerRowStyle,
-                            background:
-                              calc.bakiUdhari >
-                              0
-                                ? "#fffafa"
-                                : "#fafffb"
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background =
-                              "#e3f2fd";
-                            e.currentTarget.style.cursor =
-                              "pointer";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background =
-                              calc.bakiUdhari >
-                              0
-                                ? "#fffafa"
-                                : "#fafffb";
+                            padding: "10px",
+                            fontWeight:
+                              "600",
                           }}
                         >
+                          {customer.name}
+                        </td>
 
-                          <td
-                            style={
-                              customerTdStyle
-                            }
-                          >
-                            <b>
-                              {index + 1}
-                            </b>
-                          </td>
+                        <td
+                          style={{
+                            padding: "10px",
+                          }}
+                        >
+                          {customer.mobile ||
+                            "-"}
+                        </td>
 
-                          <td
-                            style={{
-                              ...customerTdStyle,
-                              fontWeight:
-                                "bold",
-                              color:
-                                "#1565c0"
-                            }}
-                          >
-                            👤{" "}
-                            {
-                              customer.name
-                            }
-                          </td>
+                        <td
+                          style={{
+                            padding: "10px",
+                            textAlign:
+                              "right",
+                          }}
+                        >
+                          {money(
+                            calc.totalBills
+                          )}
+                        </td>
 
-                          <td
-                            style={
-                              customerTdStyle
-                            }
-                          >
-                            {customer.mobile
-                              ? `📱 ${customer.mobile}`
-                              : "-"}
-                          </td>
+                        <td
+                          style={{
+                            padding: "10px",
+                            textAlign:
+                              "right",
+                            fontWeight:
+                              "700",
+                            color:
+                              calc.finalBalance >
+                              0
+                                ? "#d32f2f"
+                                : "#2e7d32",
+                          }}
+                        >
+                          {money(
+                            calc.finalBalance
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  }
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-                          <td
-                            style={{
-                              ...customerTdStyle,
-                              color:
-                                "#1565c0",
-                              fontWeight:
-                                "bold"
-                            }}
-                          >
-                            {money(
-                              calc.totalBill
-                            )}
-                          </td>
-
-                          <td
-                            style={{
-                              ...customerTdStyle,
-                              color:
-                                "#2e7d32",
-                              fontWeight:
-                                "bold"
-                            }}
-                          >
-                            {money(
-                              calc.billPaid
-                            )}
-                          </td>
-
-                          <td
-                            style={{
-                              ...customerTdStyle,
-                              color:
-                                "#ef6c00",
-                              fontWeight:
-                                "bold"
-                            }}
-                          >
-                            {money(
-                              calc.originalUdhari
-                            )}
-                          </td>
-
-                          <td
-                            style={{
-                              ...customerTdStyle,
-                              color:
-                                calc.bakiUdhari >
-                                0
-                                  ? "#d32f2f"
-                                  : "#2e7d32",
-                              fontWeight:
-                                "bold",
-                              fontSize:
-                                "13px"
-                            }}
-                          >
-                            {money(
-                              calc.bakiUdhari
-                            )}
-                          </td>
-
-                          <td
-                            style={{
-                              ...customerTdStyle,
-                              color:
-                                "#6a1b9a",
-                              fontWeight:
-                                "bold"
-                            }}
-                          >
-                            {money(
-                              calc.advance
-                            )}
-                          </td>
-
-                          <td
-                            style={
-                              customerTdStyle
-                            }
-                          >
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openCustomer(
-                                  customer
-                                );
-                              }}
-                              style={
-                                openButton
-                              }
-                            >
-                              Open →
-                            </button>
-                          </td>
-
-                        </tr>
-                      );
-                    }
-                  )}
-
-                </tbody>
-
-              </table>
-
-            </div>
-          )}
-
-        </div>
-      )}
-
-      {/* CUSTOMER DETAIL */}
-
+      {/* SELECTED CUSTOMER */}
       {selectedCustomer && (
-        <div style={cardStyle}>
-
+        <>
           {/* CUSTOMER HEADER */}
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "10px",
+              padding: "15px",
+              marginBottom: "15px",
+              boxShadow:
+                "0 1px 5px rgba(0,0,0,0.08)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent:
+                  "space-between",
+                alignItems: "center",
+                gap: "10px",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <h3
+                  style={{
+                    margin:
+                      "0 0 5px 0",
+                  }}
+                >
+                  👤{" "}
+                  {selectedCustomer.name}
+                </h3>
 
-          <div style={customerHeader}>
-
-            <div>
-
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "#777"
-                }}
-              >
-                Selected Customer
-              </div>
-
-              <h2
-                style={{
-                  margin: "3px 0"
-                }}
-              >
-                👤{" "}
-                {
-                  selectedCustomer.name
-                }
-              </h2>
-
-              {selectedCustomer.mobile && (
                 <div
                   style={{
-                    fontSize: 13,
-                    color: "#666"
+                    color: "#666",
                   }}
                 >
                   📱{" "}
-                  {
-                    selectedCustomer.mobile
-                  }
+                  {selectedCustomer.mobile ||
+                    "-"}
                 </div>
-              )}
+              </div>
 
+              <button
+                onClick={() =>
+                  setShowBills(
+                    !showBills
+                  )
+                }
+                style={{
+                  padding:
+                    "9px 14px",
+                  border: "none",
+                  borderRadius:
+                    "7px",
+                  background:
+                    "#1976d2",
+                  color: "#fff",
+                  cursor:
+                    "pointer",
+                }}
+              >
+                {showBills
+                  ? "Hide Bills"
+                  : "Show Bills"}
+              </button>
+            </div>
+          </div>
+
+          {/* SUMMARY CARDS */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit,minmax(160px,1fr))",
+              gap: "10px",
+              marginBottom: "15px",
+            }}
+          >
+            <div
+              style={{
+                background: "#fff",
+                padding: "15px",
+                borderRadius: "10px",
+                boxShadow:
+                  "0 1px 5px rgba(0,0,0,0.08)",
+              }}
+            >
+              <div
+                style={{
+                  color: "#777",
+                  fontSize:
+                    "13px",
+                }}
+              >
+                Total Bills
+              </div>
+
+              <div
+                style={{
+                  fontSize: "20px",
+                  fontWeight:
+                    "700",
+                  marginTop:
+                    "5px",
+                }}
+              >
+                {money(
+                  customerCalculation.totalBills
+                )}
+              </div>
             </div>
 
             <div
               style={{
-                textAlign: "right"
+                background: "#fff",
+                padding: "15px",
+                borderRadius: "10px",
+                boxShadow:
+                  "0 1px 5px rgba(0,0,0,0.08)",
               }}
             >
+              <div
+                style={{
+                  color: "#777",
+                  fontSize:
+                    "13px",
+                }}
+              >
+                Bill Payment
+              </div>
 
               <div
                 style={{
-                  color:
-                    customerCalculation.bakiUdhari >
-                    0
-                      ? "#d32f2f"
-                      : "#2e7d32",
-                  fontSize: 21,
-                  fontWeight: "bold"
+                  fontSize: "20px",
+                  fontWeight:
+                    "700",
+                  marginTop:
+                    "5px",
                 }}
               >
                 {money(
-                  customerCalculation.bakiUdhari
+                  customerCalculation.totalPaid
                 )}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: "#fff",
+                padding: "15px",
+                borderRadius: "10px",
+                boxShadow:
+                  "0 1px 5px rgba(0,0,0,0.08)",
+              }}
+            >
+              <div
+                style={{
+                  color: "#777",
+                  fontSize:
+                    "13px",
+                }}
+              >
+                Udhari
               </div>
 
               <div
                 style={{
-                  fontSize: 11,
-                  color: "#777"
+                  fontSize: "20px",
+                  fontWeight:
+                    "700",
+                  marginTop:
+                    "5px",
+                  color:
+                    "#d32f2f",
                 }}
               >
-                बाकी Udhari
-              </div>
-
-            </div>
-
-          </div>
-
-          {/* ACTION BUTTONS */}
-
-          <div style={actionBox}>
-
-            <button
-              type="button"
-              onClick={closeCustomer}
-              style={grayButton}
-            >
-              ⬅️ All Customers
-            </button>
-
-            <button
-              type="button"
-              onClick={openPayment}
-              style={paymentButton}
-            >
-              💳 Udhari Payment जमा करें
-            </button>
-
-            <button
-              type="button"
-              onClick={refreshLedger}
-              style={refreshButton}
-            >
-              🔄 Refresh
-            </button>
-
-          </div>
-
-          {/* SUMMARY */}
-
-          <div style={summaryGrid}>
-
-            <button
-              type="button"
-              onClick={() =>
-                setShowBills(true)
-              }
-              style={
-                clickableSummaryButton
-              }
-            >
-
-              <SummaryCard
-                title="Total Bill"
-                value={money(
-                  customerCalculation.totalBill
+                {money(
+                  customerCalculation.totalUdhari
                 )}
-                color="#1565c0"
-              />
+              </div>
+            </div>
 
-              <div style={clickHint}>
-                👆 Bills देखें
+            <div
+              style={{
+                background: "#fff",
+                padding: "15px",
+                borderRadius: "10px",
+                boxShadow:
+                  "0 1px 5px rgba(0,0,0,0.08)",
+              }}
+            >
+              <div
+                style={{
+                  color: "#777",
+                  fontSize:
+                    "13px",
+                }}
+              >
+                Payment Received
               </div>
 
-            </button>
+              <div
+                style={{
+                  fontSize: "20px",
+                  fontWeight:
+                    "700",
+                  marginTop:
+                    "5px",
+                  color:
+                    "#2e7d32",
+                }}
+              >
+                {money(
+                  customerCalculation.totalPayment
+                )}
+              </div>
+            </div>
 
-            <SummaryCard
-              title="Bill Paid"
-              value={money(
-                customerCalculation.billPaid
-              )}
-              color="#2e7d32"
-            />
+            <div
+              style={{
+                background: "#fff",
+                padding: "15px",
+                borderRadius: "10px",
+                boxShadow:
+                  "0 1px 5px rgba(0,0,0,0.08)",
+              }}
+            >
+              <div
+                style={{
+                  color: "#777",
+                  fontSize:
+                    "13px",
+                }}
+              >
+                Advance
+              </div>
 
-            <SummaryCard
-              title="Udhari"
-              value={money(
-                customerCalculation.originalUdhari
-              )}
-              color="#ef6c00"
-            />
+              <div
+                style={{
+                  fontSize: "20px",
+                  fontWeight:
+                    "700",
+                  marginTop:
+                    "5px",
+                  color:
+                    "#1565c0",
+                }}
+              >
+                {money(
+                  customerCalculation.totalAdvance
+                )}
+              </div>
+            </div>
 
-            <SummaryCard
-              title="Udhari Payment"
-              value={money(
-                customerCalculation.udhariPayment
-              )}
-              color="#00838f"
-            />
+            <div
+              style={{
+                background: "#fff",
+                padding: "15px",
+                borderRadius: "10px",
+                boxShadow:
+                  "0 1px 5px rgba(0,0,0,0.08)",
+              }}
+            >
+              <div
+                style={{
+                  color: "#777",
+                  fontSize:
+                    "13px",
+                }}
+              >
+                Final Balance
+              </div>
 
-            <SummaryCard
-              title="बाकी Udhari"
-              value={money(
-                customerCalculation.bakiUdhari
-              )}
-              color={
-                customerCalculation.bakiUdhari >
-                0
-                  ? "#d32f2f"
-                  : "#2e7d32"
-              }
-            />
-
-            <SummaryCard
-              title="Advance"
-              value={money(
-                customerCalculation.advance
-              )}
-              color="#6a1b9a"
-            />
-
+              <div
+                style={{
+                  fontSize: "20px",
+                  fontWeight:
+                    "700",
+                  marginTop:
+                    "5px",
+                  color:
+                    customerCalculation.finalBalance >
+                    0
+                      ? "#d32f2f"
+                      : "#2e7d32",
+                }}
+              >
+                {money(
+                  customerCalculation.finalBalance
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* PAYMENT RULE */}
-
-          <div style={paymentRuleBox}>
-
-            <b>
-              💡 Final Payment Calculation
-            </b>
-
-            <div style={{ marginTop: 7 }}>
-              <b>
-                Total Bill − Bill Paid − Advance
-                Adjust = Udhari
-              </b>
+          {/* PAYMENT BUTTON */}
+          {typeof setPage ===
+            "function" && (
+            <div
+              style={{
+                marginBottom: "15px",
+              }}
+            >
+              <button
+                onClick={() =>
+                  setPage(
+                    "customerPayment"
+                  )
+                }
+                style={{
+                  width: "100%",
+                  padding:
+                    "12px",
+                  border: "none",
+                  borderRadius:
+                    "8px",
+                  background:
+                    "#2e7d32",
+                  color: "#fff",
+                  fontSize:
+                    "16px",
+                  fontWeight:
+                    "700",
+                  cursor:
+                    "pointer",
+                }}
+              >
+                💰 Customer Payment
+              </button>
             </div>
+          )}
 
-            <div style={{ marginTop: 5 }}>
-              बाद में जमा हुई Payment पहले
-              Udhari में Adjust होगी।
-            </div>
-
-            <div style={{ marginTop: 5 }}>
-              Bill में इस्तेमाल हुआ Advance
-              दोबारा Advance में नहीं गिना जाएगा।
-            </div>
-
-            <div style={{ marginTop: 5 }}>
-              <b>
-                Bill Paid में बाद की Payment
-                नहीं जुड़ेगी।
-              </b>
-            </div>
-
-          </div>
-
-          {/* BILL DETAILS */}
-
+          {/* BILLS */}
           {showBills && (
-            <div style={billDetailBox}>
-
-              <div style={detailHeader}>
-
-                <div>
-                  <h3 style={{ margin: 0 }}>
-                    🧾 Customer Bills
-                  </h3>
-
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "#777",
-                      marginTop: 3
-                    }}
-                  >
-                    {
-                      selectedCustomer.name
-                    }
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowBills(false)
-                  }
-                  style={closeButton}
-                >
-                  ✖ Close
-                </button>
-
+            <div
+              style={{
+                background: "#fff",
+                borderRadius: "10px",
+                marginBottom: "15px",
+                overflow: "hidden",
+                boxShadow:
+                  "0 1px 5px rgba(0,0,0,0.08)",
+              }}
+            >
+              <div
+                style={{
+                  padding: "12px",
+                  fontWeight: "700",
+                  borderBottom:
+                    "1px solid #eee",
+                }}
+              >
+                🧾 Bill History (
+                {
+                  selectedBills.length
+                }
+                )
               </div>
 
-              {selectedBills.length === 0 ? (
-                <div style={emptyBox}>
-                  इस Customer का कोई Bill
-                  नहीं मिला।
+              {selectedBills.length ===
+              0 ? (
+                <div
+                  style={{
+                    padding: "20px",
+                    textAlign:
+                      "center",
+                    color: "#777",
+                  }}
+                >
+                  No bills found
                 </div>
               ) : (
                 <div
                   style={{
-                    overflowX: "auto"
+                    overflowX:
+                      "auto",
                   }}
                 >
-
-                  <table style={tableStyle}>
-
+                  <table
+                    style={{
+                      width:
+                        "100%",
+                      borderCollapse:
+                        "collapse",
+                      minWidth:
+                        "850px",
+                    }}
+                  >
                     <thead>
-                      <tr>
-
-                        <th style={thStyle}>
+                      <tr
+                        style={{
+                          background:
+                            "#f0f2f5",
+                        }}
+                      >
+                        <th
+                          style={{
+                            padding:
+                              "9px",
+                            textAlign:
+                              "left",
+                          }}
+                        >
                           Date
                         </th>
 
-                        <th style={thStyle}>
-                          Bill No.
+                        <th
+                          style={{
+                            padding:
+                              "9px",
+                            textAlign:
+                              "left",
+                          }}
+                        >
+                          Bill No
                         </th>
 
-                        <th style={thStyle}>
+                        <th
+                          style={{
+                            padding:
+                              "9px",
+                            textAlign:
+                              "right",
+                          }}
+                        >
                           Total
                         </th>
 
-                        <th style={thStyle}>
-                          Bill Paid
+                        <th
+                          style={{
+                            padding:
+                              "9px",
+                            textAlign:
+                              "right",
+                          }}
+                        >
+                          Paid
                         </th>
 
-                        <th style={thStyle}>
+                        <th
+                          style={{
+                            padding:
+                              "9px",
+                            textAlign:
+                              "right",
+                          }}
+                        >
                           Advance Adjust
                         </th>
 
-                        <th style={thStyle}>
-                          Bill Udhari
+                        <th
+                          style={{
+                            padding:
+                              "9px",
+                            textAlign:
+                              "right",
+                          }}
+                        >
+                          Udhari
                         </th>
-
                       </tr>
                     </thead>
 
                     <tbody>
-
                       {selectedBills.map(
-                        (
-                          bill,
-                          index
-                        ) => {
-
+                        (bill, index) => {
                           const total =
                             getBillTotal(
                               bill
@@ -1824,57 +1842,114 @@ function CustomerLedger({ setPage, goBack }) {
                               bill
                             );
 
+                          const dateValue =
+                            bill.date ||
+                            bill.billDate ||
+                            bill.createdAt;
+
+                          let dateText =
+                            "-";
+
+                          if (
+                            dateValue
+                          ) {
+                            const d =
+                              new Date(
+                                dateValue
+                              );
+
+                            if (
+                              !Number.isNaN(
+                                d.getTime()
+                              )
+                            ) {
+                              dateText =
+                                d.toLocaleDateString(
+                                  "en-IN"
+                                );
+                            } else {
+                              dateText =
+                                String(
+                                  dateValue
+                                );
+                            }
+                          }
+
+                          const billNo =
+                            bill.billNo ||
+                            bill.billNumber ||
+                            bill.invoiceNo ||
+                            bill.invoiceNumber ||
+                            bill.id ||
+                            `#${index + 1}`;
+
                           return (
                             <tr
                               key={
-                                bill?.id ||
-                                bill?.billNo ||
-                                bill?.billNumber ||
-                                index
+                                bill.id ||
+                                `${billNo}-${index}`
                               }
+                              style={{
+                                borderBottom:
+                                  "1px solid #eee",
+                              }}
                             >
-
-                              <td style={tdStyle}>
-                                {bill?.date ||
-                                  bill?.billDate ||
-                                  bill?.createdDate ||
-                                  "-"}
-                              </td>
-
-                              <td style={tdStyle}>
-                                {bill?.billNo ||
-                                  bill?.billNumber ||
-                                  bill?.invoiceNo ||
-                                  bill?.invoiceNumber ||
-                                  bill?.id ||
-                                  "-"}
-                              </td>
-
                               <td
                                 style={{
-                                  ...tdStyle,
-                                  color: "#1565c0",
-                                  fontWeight: "bold"
+                                  padding:
+                                    "9px",
                                 }}
                               >
-                                {money(total)}
+                                {
+                                  dateText
+                                }
                               </td>
 
                               <td
                                 style={{
-                                  ...tdStyle,
-                                  color: "#2e7d32",
-                                  fontWeight: "bold"
+                                  padding:
+                                    "9px",
                                 }}
                               >
-                                {money(paid)}
+                                {
+                                  billNo
+                                }
                               </td>
 
                               <td
                                 style={{
-                                  ...tdStyle,
-                                  color: "#6a1b9a",
-                                  fontWeight: "bold"
+                                  padding:
+                                    "9px",
+                                  textAlign:
+                                    "right",
+                                }}
+                              >
+                                {money(
+                                  total
+                                )}
+                              </td>
+
+                              <td
+                                style={{
+                                  padding:
+                                    "9px",
+                                  textAlign:
+                                    "right",
+                                }}
+                              >
+                                {money(
+                                  paid
+                                )}
+                              </td>
+
+                              <td
+                                style={{
+                                  padding:
+                                    "9px",
+                                  textAlign:
+                                    "right",
+                                  color:
+                                    "#1565c0",
                                 }}
                               >
                                 {money(
@@ -1884,873 +1959,441 @@ function CustomerLedger({ setPage, goBack }) {
 
                               <td
                                 style={{
-                                  ...tdStyle,
+                                  padding:
+                                    "9px",
+                                  textAlign:
+                                    "right",
                                   color:
-                                    udhari > 0
+                                    udhari >
+                                    0
                                       ? "#d32f2f"
                                       : "#2e7d32",
-                                  fontWeight: "bold"
+                                  fontWeight:
+                                    "700",
                                 }}
                               >
-                                {money(udhari)}
+                                {money(
+                                  udhari
+                                )}
                               </td>
-
                             </tr>
                           );
                         }
                       )}
-
                     </tbody>
-
-                    <tfoot>
-
-                      <tr>
-
-                        <td
-                          colSpan="2"
-                          style={{
-                            ...tdStyle,
-                            fontWeight: "bold",
-                            background: "#f1f5f9"
-                          }}
-                        >
-                          TOTAL
-                        </td>
-
-                        <td
-                          style={{
-                            ...tdStyle,
-                            fontWeight: "bold",
-                            color: "#1565c0",
-                            background: "#f1f5f9"
-                          }}
-                        >
-                          {money(
-                            customerCalculation.totalBill
-                          )}
-                        </td>
-
-                        <td
-                          style={{
-                            ...tdStyle,
-                            fontWeight: "bold",
-                            color: "#2e7d32",
-                            background: "#f1f5f9"
-                          }}
-                        >
-                          {money(
-                            customerCalculation.billPaid
-                          )}
-                        </td>
-
-                        <td
-                          style={{
-                            ...tdStyle,
-                            fontWeight: "bold",
-                            color: "#6a1b9a",
-                            background: "#f1f5f9"
-                          }}
-                        >
-                          {money(
-                            customerCalculation.advanceAdjustedInBills
-                          )}
-                        </td>
-
-                        <td
-                          style={{
-                            ...tdStyle,
-                            fontWeight: "bold",
-                            color:
-                              customerCalculation.originalUdhari >
-                              0
-                                ? "#d32f2f"
-                                : "#2e7d32",
-                            background: "#f1f5f9"
-                          }}
-                        >
-                          {money(
-                            customerCalculation.originalUdhari
-                          )}
-                        </td>
-
-                      </tr>
-
-                    </tfoot>
-
                   </table>
-
                 </div>
               )}
-
             </div>
           )}
 
           {/* CUSTOMER PAYMENTS */}
-
-          <h3 style={subHeading}>
-            💳 Customer Payments
-          </h3>
-
-          {selectedPayments.length === 0 ? (
-            <div style={emptyBox}>
-              इस Customer से कोई Payment
-              जमा नहीं हुआ है।
-            </div>
-          ) : (
-            <div
-              style={{
-                overflowX: "auto"
-              }}
-            >
-
-              <table style={tableStyle}>
-
-                <thead>
-
-                  <tr>
-
-                    <th style={thStyle}>
-                      Date
-                    </th>
-
-                    <th style={thStyle}>
-                      Time
-                    </th>
-
-                    <th style={thStyle}>
-                      Mode
-                    </th>
-
-                    <th style={thStyle}>
-                      Payment
-                    </th>
-
-                    <th style={thStyle}>
-                      Udhari में Adjust
-                    </th>
-
-                    <th style={thStyle}>
-                      Advance
-                    </th>
-
-                    <th style={thStyle}>
-                      Note
-                    </th>
-
-                  </tr>
-
-                </thead>
-
-                <tbody>
-
-                  {selectedPayments.map(
-                    (
-                      payment,
-                      index
-                    ) => {
-
-                      const amount =
-                        getPaymentAmount(
-                          payment
-                        );
-
-                      const adjusted =
-                        roundMoney(
-                          getSavedUdhariAdjustment(
-                            payment
-                          )
-                        );
-
-                      const advance =
-                        roundMoney(
-                          Math.max(
-                            getSavedAdvance(
-                              payment
-                            ),
-                            0
-                          )
-                        );
-
-                      return (
-                        <tr
-                          key={
-                            payment?.id ||
-                            index
-                          }
-                        >
-
-                          <td style={tdStyle}>
-                            {payment?.date ||
-                              "-"}
-                          </td>
-
-                          <td style={tdStyle}>
-                            {payment?.time ||
-                              "-"}
-                          </td>
-
-                          <td style={tdStyle}>
-                            {payment?.mode ||
-                              payment?.paymentMode ||
-                              "-"}
-                          </td>
-
-                          <td
-                            style={{
-                              ...tdStyle,
-                              color: "#2e7d32",
-                              fontWeight: "bold"
-                            }}
-                          >
-                            {money(amount)}
-                          </td>
-
-                          <td
-                            style={{
-                              ...tdStyle,
-                              color: "#00838f",
-                              fontWeight: "bold"
-                            }}
-                          >
-                            {money(adjusted)}
-                          </td>
-
-                          <td
-                            style={{
-                              ...tdStyle,
-                              color: "#6a1b9a",
-                              fontWeight: "bold"
-                            }}
-                          >
-                            {money(advance)}
-                          </td>
-
-                          <td style={tdStyle}>
-                            {payment?.note ||
-                              "-"}
-                          </td>
-
-                        </tr>
-                      );
-                    }
-                  )}
-
-                </tbody>
-
-                <tfoot>
-
-                  <tr>
-
-                    <td
-                      colSpan="3"
-                      style={{
-                        ...tdStyle,
-                        fontWeight: "bold",
-                        background: "#f1f5f9"
-                      }}
-                    >
-                      TOTAL CUSTOMER PAYMENT
-                    </td>
-
-                    <td
-                      style={{
-                        ...tdStyle,
-                        fontWeight: "bold",
-                        color: "#2e7d32",
-                        background: "#f1f5f9"
-                      }}
-                    >
-                      {money(
-                        customerCalculation.laterPayment
-                      )}
-                    </td>
-
-                    <td
-                      style={{
-                        ...tdStyle,
-                        fontWeight: "bold",
-                        color: "#00838f",
-                        background: "#f1f5f9"
-                      }}
-                    >
-                      {money(
-                        customerCalculation.udhariPayment
-                      )}
-                    </td>
-
-                    <td
-                      style={{
-                        ...tdStyle,
-                        fontWeight: "bold",
-                        color: "#6a1b9a",
-                        background: "#f1f5f9"
-                      }}
-                    >
-                      {money(
-                        customerCalculation.advance
-                      )}
-                    </td>
-
-                    <td
-                      style={{
-                        ...tdStyle,
-                        background: "#f1f5f9"
-                      }}
-                    >
-                      -
-                    </td>
-
-                  </tr>
-
-                </tfoot>
-
-              </table>
-
-            </div>
-          )}
-
-          {/* FINAL PAYMENT SUMMARY */}
-
-          <div style={distributionBox}>
-
-            <h3
-              style={{
-                margin: "0 0 12px",
-                fontSize: 16
-              }}
-            >
-              💰 Final Payment हिसाब
-            </h3>
-
-            <div style={distributionRow}>
-              <span>Total Bill</span>
-
-              <b style={{ color: "#1565c0" }}>
-                {money(
-                  customerCalculation.totalBill
-                )}
-              </b>
-            </div>
-
-            <div style={distributionRow}>
-              <span>Bill Paid</span>
-
-              <b style={{ color: "#2e7d32" }}>
-                {money(
-                  customerCalculation.billPaid
-                )}
-              </b>
-            </div>
-
-            <div style={distributionRow}>
-              <span>Advance Adjusted</span>
-
-              <b style={{ color: "#6a1b9a" }}>
-                {money(
-                  customerCalculation.advanceAdjustedInBills
-                )}
-              </b>
-            </div>
-
-            <div style={distributionRow}>
-              <span>Udhari</span>
-
-              <b style={{ color: "#ef6c00" }}>
-                {money(
-                  customerCalculation.originalUdhari
-                )}
-              </b>
-            </div>
-
-            <div style={distributionRow}>
-              <span>Udhari Payment</span>
-
-              <b style={{ color: "#00838f" }}>
-                {money(
-                  customerCalculation.udhariPayment
-                )}
-              </b>
-            </div>
-
-            <div style={distributionRow}>
-              <span>बाकी Udhari</span>
-
-              <b
-                style={{
-                  color:
-                    customerCalculation.bakiUdhari >
-                    0
-                      ? "#d32f2f"
-                      : "#2e7d32"
-                }}
-              >
-                {money(
-                  customerCalculation.bakiUdhari
-                )}
-              </b>
-            </div>
-
-            <div
-              style={{
-                ...distributionRow,
-                borderBottom: "none"
-              }}
-            >
-              <span>Advance</span>
-
-              <b style={{ color: "#6a1b9a" }}>
-                {money(
-                  customerCalculation.advance
-                )}
-              </b>
-            </div>
-
-          </div>
-
-          {/* FINAL BALANCE */}
-
           <div
             style={{
-              marginTop: 15,
-              padding: 15,
-              borderRadius: 9,
-
-              background:
-                customerCalculation.bakiUdhari >
-                0
-                  ? "#ffebee"
-                  : "#e8f5e9",
-
-              border:
-                customerCalculation.bakiUdhari >
-                0
-                  ? "1px solid #ef9a9a"
-                  : "1px solid #a5d6a7",
-
-              textAlign: "center"
+              background: "#fff",
+              borderRadius: "10px",
+              overflow: "hidden",
+              boxShadow:
+                "0 1px 5px rgba(0,0,0,0.08)",
+              marginBottom: "15px",
             }}
           >
-
             <div
               style={{
-                fontSize: 13,
-                color: "#666"
+                padding: "12px",
+                fontWeight: "700",
+                borderBottom:
+                  "1px solid #eee",
               }}
             >
-              Customer का Final
-              बाकी Udhari
+              💰 Customer Payments (
+              {
+                selectedPayments.length
+              }
+              )
             </div>
 
-            <div
-              style={{
-                fontSize: 26,
-                fontWeight: "bold",
-
-                color:
-                  customerCalculation.bakiUdhari >
-                  0
-                    ? "#d32f2f"
-                    : "#2e7d32",
-
-                marginTop: 5
-              }}
-            >
-              {money(
-                customerCalculation.bakiUdhari
-              )}
-            </div>
-
-            {customerCalculation.bakiUdhari <=
-              0 && (
+            {selectedPayments.length ===
+            0 ? (
               <div
                 style={{
-                  marginTop: 5,
-                  color: "#2e7d32",
-                  fontWeight: "bold"
+                  padding: "20px",
+                  textAlign:
+                    "center",
+                  color: "#777",
                 }}
               >
-                ✅ Udhari पूरी तरह Settled है।
+                No payment entries
               </div>
-            )}
-
-            {customerCalculation.advance >
-              0 && (
+            ) : (
               <div
                 style={{
-                  marginTop: 8,
-                  color: "#6a1b9a",
-                  fontWeight: "bold"
+                  overflowX:
+                    "auto",
                 }}
               >
-                💜 Customer Advance:{" "}
-                {money(
-                  customerCalculation.advance
-                )}
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse:
+                      "collapse",
+                    minWidth:
+                      "650px",
+                  }}
+                >
+                  <thead>
+                    <tr
+                      style={{
+                        background:
+                          "#f0f2f5",
+                      }}
+                    >
+                      <th
+                        style={{
+                          padding:
+                            "9px",
+                          textAlign:
+                            "left",
+                        }}
+                      >
+                        Date
+                      </th>
+
+                      <th
+                        style={{
+                          padding:
+                            "9px",
+                          textAlign:
+                            "left",
+                        }}
+                      >
+                        Remark
+                      </th>
+
+                      <th
+                        style={{
+                          padding:
+                            "9px",
+                          textAlign:
+                            "right",
+                        }}
+                      >
+                        Payment
+                      </th>
+
+                      <th
+                        style={{
+                          padding:
+                            "9px",
+                          textAlign:
+                            "right",
+                        }}
+                      >
+                        Udhari Adjust
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {selectedPayments.map(
+                      (
+                        payment,
+                        index
+                      ) => {
+                        const amount =
+                          getPaymentAmount(
+                            payment
+                          );
+
+                        const adjustment =
+                          getSavedUdhariAdjustment(
+                            payment
+                          );
+
+                        const dateValue =
+                          payment.date ||
+                          payment.paymentDate ||
+                          payment.createdAt;
+
+                        let dateText =
+                          "-";
+
+                        if (
+                          dateValue
+                        ) {
+                          const d =
+                            new Date(
+                              dateValue
+                            );
+
+                          if (
+                            !Number.isNaN(
+                              d.getTime()
+                            )
+                          ) {
+                            dateText =
+                              d.toLocaleDateString(
+                                "en-IN"
+                              );
+                          } else {
+                            dateText =
+                              String(
+                                dateValue
+                              );
+                          }
+                        }
+
+                        return (
+                          <tr
+                            key={
+                              payment.id ||
+                              `payment-${index}`
+                            }
+                            style={{
+                              borderBottom:
+                                "1px solid #eee",
+                            }}
+                          >
+                            <td
+                              style={{
+                                padding:
+                                  "9px",
+                              }}
+                            >
+                              {
+                                dateText
+                              }
+                            </td>
+
+                            <td
+                              style={{
+                                padding:
+                                  "9px",
+                              }}
+                            >
+                              {payment.remark ||
+                                payment.note ||
+                                payment.description ||
+                                "-"}
+                            </td>
+
+                            <td
+                              style={{
+                                padding:
+                                  "9px",
+                                textAlign:
+                                  "right",
+                                color:
+                                  "#2e7d32",
+                                fontWeight:
+                                  "700",
+                              }}
+                            >
+                              {money(
+                                amount
+                              )}
+                            </td>
+
+                            <td
+                              style={{
+                                padding:
+                                  "9px",
+                                textAlign:
+                                  "right",
+                                color:
+                                  "#1565c0",
+                              }}
+                            >
+                              {money(
+                                adjustment
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    )}
+                  </tbody>
+                </table>
               </div>
             )}
-
           </div>
 
-        </div>
+          {/* FINAL SUMMARY */}
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "10px",
+              padding: "15px",
+              boxShadow:
+                "0 1px 5px rgba(0,0,0,0.08)",
+            }}
+          >
+            <h3
+              style={{
+                marginTop: 0,
+              }}
+            >
+              📊 Final Payment Summary
+            </h3>
+
+            <div
+              style={{
+                display: "grid",
+                gap: "8px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    "space-between",
+                  borderBottom:
+                    "1px solid #eee",
+                  paddingBottom:
+                    "8px",
+                }}
+              >
+                <span>
+                  Total Bill
+                </span>
+
+                <strong>
+                  {money(
+                    customerCalculation.totalBills
+                  )}
+                </strong>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    "space-between",
+                  borderBottom:
+                    "1px solid #eee",
+                  paddingBottom:
+                    "8px",
+                }}
+              >
+                <span>
+                  Bill में Paid
+                </span>
+
+                <strong>
+                  {money(
+                    customerCalculation.totalPaid
+                  )}
+                </strong>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    "space-between",
+                  borderBottom:
+                    "1px solid #eee",
+                  paddingBottom:
+                    "8px",
+                }}
+              >
+                <span>
+                  Udhari
+                </span>
+
+                <strong
+                  style={{
+                    color:
+                      "#d32f2f",
+                  }}
+                >
+                  {money(
+                    customerCalculation.totalUdhari
+                  )}
+                </strong>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    "space-between",
+                  borderBottom:
+                    "1px solid #eee",
+                  paddingBottom:
+                    "8px",
+                }}
+              >
+                <span>
+                  बाद में मिला Payment
+                </span>
+
+                <strong
+                  style={{
+                    color:
+                      "#2e7d32",
+                  }}
+                >
+                  {money(
+                    customerCalculation.totalPayment
+                  )}
+                </strong>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    "space-between",
+                    paddingTop: "5px",
+                }}
+              >
+                <strong>
+                  FINAL BALANCE
+                </strong>
+
+                <strong
+                  style={{
+                    fontSize:
+                      "22px",
+                    color:
+                      customerCalculation.finalBalance >
+                      0
+                        ? "#d32f2f"
+                        : "#2e7d32",
+                  }}
+                >
+                  {money(
+                    customerCalculation.finalBalance
+                  )}
+                </strong>
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: "15px",
+                padding: "10px",
+                borderRadius: "7px",
+                background:
+                  "#fff8e1",
+                color: "#795548",
+                fontSize: "13px",
+              }}
+            >
+              <strong>
+                Rule:
+              </strong>{" "}
+              Bill में मिला payment,
+              बाद में किया गया customer
+              payment और advance adjustment
+              अलग-अलग calculate किए जाते हैं।
+            </div>
+          </div>
+        </>
       )}
-
     </div>
   );
 }
-
-// =====================================================
-// SUMMARY CARD
-// =====================================================
-
-function SummaryCard({
-  title,
-  value,
-  color
-}) {
-  return (
-    <div
-      style={{
-        background: "#ffffff",
-        padding: "12px",
-        borderRadius: "8px",
-        borderLeft:
-          `4px solid ${color}`,
-        boxShadow:
-          "0 2px 6px rgba(0,0,0,0.05)",
-        minHeight: "65px",
-        boxSizing: "border-box"
-      }}
-    >
-
-      <div
-        style={{
-          fontSize: "11px",
-          color: "#777"
-        }}
-      >
-        {title}
-      </div>
-
-      <div
-        style={{
-          marginTop: "5px",
-          fontSize: "19px",
-          fontWeight: "bold",
-          color
-        }}
-      >
-        {value}
-      </div>
-
-    </div>
-  );
-}
-
-// =====================================================
-// STYLES
-// =====================================================
-
-const pageStyle = {
-  minHeight: "100vh",
-  padding: "12px",
-  background: "#f2f5f9",
-  fontFamily: "Arial, sans-serif",
-  boxSizing: "border-box"
-};
-
-const headerStyle = {
-  background:
-    "linear-gradient(135deg,#0d47a1,#1976d2,#42a5f5)",
-  color: "white",
-  padding: "17px",
-  borderRadius: "11px",
-  marginBottom: "13px",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "10px",
-  flexWrap: "wrap",
-  boxShadow:
-    "0 3px 10px rgba(0,0,0,0.12)"
-};
-
-const headerTitle = {
-  margin: 0,
-  fontSize: "24px"
-};
-
-const subtitle = {
-  marginTop: "4px",
-  fontSize: "13px"
-};
-
-const backButton = {
-  padding: "9px 14px",
-  background:
-    "rgba(255,255,255,0.18)",
-  color: "white",
-  border:
-    "1px solid rgba(255,255,255,0.4)",
-  borderRadius: "7px",
-  cursor: "pointer",
-  fontWeight: "bold"
-};
-
-const cardStyle = {
-  background: "white",
-  padding: "14px",
-  borderRadius: "10px",
-  marginBottom: "13px",
-  boxShadow:
-    "0 2px 7px rgba(0,0,0,0.06)"
-};
-
-const searchInput = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "11px",
-  border: "1px solid #ccc",
-  borderRadius: "7px",
-  fontSize: "14px"
-};
-
-const sectionTitle = {
-  margin: 0,
-  fontSize: "18px"
-};
-
-const customerListHeader = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "10px",
-  marginBottom: "12px",
-  flexWrap: "wrap"
-};
-
-const latestHint = {
-  marginTop: "3px",
-  fontSize: "11px",
-  color: "#777"
-};
-
-const customerCount = {
-  padding: "7px 11px",
-  background: "#e3f2fd",
-  color: "#1565c0",
-  borderRadius: "7px",
-  fontSize: "12px"
-};
-
-// =====================================================
-// CUSTOMER TABLE
-// =====================================================
-
-const customerTableStyle = {
-  width: "100%",
-  borderCollapse: "collapse",
-  fontSize: "12px",
-  minWidth: "850px"
-};
-
-const customerThStyle = {
-  border: "1px solid #d5dbe2",
-  padding: "10px 8px",
-  background: "#e3f2fd",
-  color: "#0d47a1",
-  whiteSpace: "nowrap",
-  textAlign: "left",
-  fontWeight: "bold",
-  position: "sticky",
-  top: 0,
-  zIndex: 1
-};
-
-const customerTdStyle = {
-  border: "1px solid #e1e5e9",
-  padding: "10px 8px",
-  whiteSpace: "nowrap",
-  verticalAlign: "middle"
-};
-
-const customerRowStyle = {
-  transition: "background 0.15s ease",
-  borderLeft: "4px solid #1976d2"
-};
-
-const openButton = {
-  padding: "7px 12px",
-  background: "#1565c0",
-  color: "white",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer",
-  fontWeight: "bold",
-  fontSize: "11px"
-};
-
-const customerHeader = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "10px",
-  flexWrap: "wrap",
-  padding: "11px",
-  background: "#f5f7fa",
-  borderRadius: "8px",
-  marginBottom: "12px"
-};
-
-const actionBox = {
-  display: "flex",
-  gap: "8px",
-  flexWrap: "wrap",
-  marginBottom: "13px"
-};
-
-const grayButton = {
-  padding: "9px 13px",
-  background: "#555",
-  color: "white",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer",
-  fontWeight: "bold"
-};
-
-const paymentButton = {
-  padding: "9px 13px",
-  background: "#6a1b9a",
-  color: "white",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer",
-  fontWeight: "bold"
-};
-
-const refreshButton = {
-  padding: "9px 13px",
-  background: "#0277bd",
-  color: "white",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer",
-  fontWeight: "bold"
-};
-
-const summaryGrid = {
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(auto-fit,minmax(150px,1fr))",
-  gap: "9px",
-  marginBottom: "14px"
-};
-
-const clickableSummaryButton = {
-  position: "relative",
-  border: "none",
-  background: "transparent",
-  padding: 0,
-  margin: 0,
-  width: "100%",
-  cursor: "pointer",
-  textAlign: "left"
-};
-
-const clickHint = {
-  position: "absolute",
-  right: "7px",
-  bottom: "5px",
-  fontSize: "10px",
-  color: "#1565c0",
-  fontWeight: "bold"
-};
-
-const paymentRuleBox = {
-  padding: "12px",
-  marginBottom: "14px",
-  borderRadius: "8px",
-  background: "#f3e5f5",
-  border: "1px solid #ce93d8",
-  color: "#4a148c",
-  fontSize: "12px"
-};
-
-const distributionBox = {
-  marginTop: "15px",
-  padding: "14px",
-  borderRadius: "9px",
-  background: "#f8fafc",
-  border: "1px solid #d9e0e7"
-};
-
-const distributionRow = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "10px",
-  padding: "9px 0",
-  borderBottom:
-    "1px solid #e5e7eb",
-  fontSize: "13px"
-};
-
-const billDetailBox = {
-  marginTop: "10px",
-  padding: "14px",
-  background: "#f8fafc",
-  border: "1px solid #d9e0e7",
-  borderRadius: "10px",
-  marginBottom: "15px"
-};
-
-const detailHeader = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "10px",
-  marginBottom: "12px"
-};
-
-const closeButton = {
-  padding: "7px 11px",
-  background: "#555",
-  color: "white",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer"
-};
-
-const subHeading = {
-  margin: "16px 0 9px",
-  fontSize: "16px"
-};
-
-const emptyBox = {
-  padding: "20px",
-  textAlign: "center",
-  color: "#777",
-  background: "#f7f8fa",
-  borderRadius: "7px"
-};
-
-const tableStyle = {
-  width: "100%",
-  borderCollapse: "collapse",
-  fontSize: "12px"
-};
-
-const thStyle = {
-  border: "1px solid #ddd",
-  padding: "8px",
-  background: "#f1f5f9",
-  whiteSpace: "nowrap"
-};
-
-const tdStyle = {
-  border: "1px solid #ddd",
-  padding: "8px",
-  whiteSpace: "nowrap"
-};
 
 export default CustomerLedger;
