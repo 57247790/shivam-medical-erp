@@ -1416,8 +1416,8 @@ const gstAmount =
 
       try {
         const API_URL =
-          process.env.REACT_APP_API_URL ||
-          "http://localhost:5000";
+  process.env.REACT_APP_API_URL ||
+  "https://shivam-medical-erp.onrender.com";
 
         // पहले backend का current stock लें
         const stockResponse = await fetch(
@@ -1430,10 +1430,12 @@ const gstAmount =
 
         const stockResult = await stockResponse.json();
 
-        const backendStock =
-          Array.isArray(stockResult.stock)
-            ? stockResult.stock
-            : [];
+       const backendStock =
+  Array.isArray(stockResult)
+    ? stockResult
+    : Array.isArray(stockResult.stock)
+    ? stockResult.stock
+    : [];
 
         // वही item backend में पहले से है या नहीं
         const backendIndex = backendStock.findIndex(

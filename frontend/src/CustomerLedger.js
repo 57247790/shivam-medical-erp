@@ -6,41 +6,36 @@ const API_URL =
   "https://shivam-medical-erp.onrender.com";
 
 function CustomerLedger({ setPage, goBack }) {
-  // =========================================================
-  // STATE
-  // =========================================================
-
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [search, setSearch] = useState("");
   const [showBills, setShowBills] = useState(true);
   const [refresh, setRefresh] = useState(0);
   const [onlineBills, setOnlineBills] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  // =========================================================
+  // =====================================================
   // BASIC HELPERS
-  // =========================================================
+  // =====================================================
 
   const loadArray = (key) => {
     try {
-      const data = JSON.parse(localStorage.getItem(key) || "[]");
+      const data = JSON.parse(
+        localStorage.getItem(key) || "[]"
+      );
+
       return Array.isArray(data) ? data : [];
     } catch {
       return [];
     }
   };
 
-  const loadObject = (key) => {
-    try {
-      const data = JSON.parse(localStorage.getItem(key) || "{}");
-      return data && typeof data === "object" ? data : {};
-    } catch {
-      return {};
-    }
-  };
-
   const roundMoney = (value) => {
     const n = Number(value);
-    if (!Number.isFinite(n)) return 0;
+
+    if (!Number.isFinite(n)) {
+      return 0;
+    }
+
     return Math.round((n + Number.EPSILON) * 100) / 100;
   };
 
@@ -55,452 +50,170 @@ function CustomerLedger({ setPage, goBack }) {
       .toLowerCase();
   };
 
-  const normalizeName = (value) => {
-    return normalizeText(value);
+  const normalizeMobile = (value) => {
+    return String(value ?? "")
+      .replace(/\D/g, "")
+      .slice(-10);
   };
 
-  const normalizeMobile = (value) => {
-    return String(value ?? "").replace(/\D/g, "").slice(-10);
+  const positiveNumber = (value) => {
+    const n = Number(value);
+
+    if (!Number.isFinite(n) || n <= 0) {
+      return 0;
+    }
+
+    return roundMoney(n);
   };
+
+  // =====================================================
+  // CUSTOMER NAME
+  // =====================================================
+
+  const getCustomerName = (item) => {
+    if (!item) {
+      return "";
+    }
+
+    const possibleNames = [
+      item.customerName,
+      item.name,
+      item.partyName,
+      item.clientName,
+      typeof item.customer === "string"
+        ? item.customer
+        : "",
+    ];
+
+    for (const value of possibleNames) {
+      if (
+        typeof value === "string" &&
+        value.trim()
+      ) {
+        return value.trim();
+      }
+    }
+
+    if (
+      item.customer &&
+      typeof item.customer === "object"
+    ) {
+      return String(
+        item.customer.customerName ||
+          item.customer.name ||
+          ""
+      ).trim();
+    }
+
+    if (
+      item.customerDetails &&
+      typeof item.customerDetails === "object"
+    ) {
+      return String(
+        item.customerDetails.customerName ||
+          item.customerDetails.name ||
+          ""
+      ).trim();
+    }
+
+    return "";
+  };
+
+  // =====================================================
+  // CUSTOMER MOBILE
+  // =====================================================
+
+  const getCustomerMobile = (item) => {
+    if (!item) {
+      return "";
+    }
+
+    const possibleMobiles = [
+      item.customerMobile,
+      item.mobile,
+      item.phone,
+      item.customerPhone,
+      item.partyMobile,
+      item.partyPhone,
+      item.clientMobile,
+    ];
+
+    for (const value of possibleMobiles) {
+      if (
+        value !== undefined &&
+        value !== null &&
+        String(value).trim()
+      ) {
+        return String(value).trim();
+      }
+    }
+
+    if (
+      item.customer &&
+      typeof item.customer === "object"
+    ) {
+      return String(
+        item.customer.customerMobile ||
+          item.customer.mobile ||
+          item.customer.phone ||
+          ""
+      ).trim();
+    }
+
+    if (
+      item.customerDetails &&
+      typeof item.customerDetails === "object"
+    ) {
+      return String(
+        item.customerDetails.customerMobile ||
+          item.customerDetails.mobile ||
+          item.customerDetails.phone ||
+          ""
+      ).trim();
+    }
+
+    return "";
+  };
+
+  // =====================================================
+  // CUSTOMER KEY
+  // =====================================================
 
   const makeCustomerKey = (name, mobile) => {
     const m = normalizeMobile(mobile);
-    const n = normalizeName(name);
+    const n = normalizeText(name);
 
-    if (m) return `mobile:${m}`;
-    if (n) return `name:${n}`;
-
-    return "";
-  };
-
-  // =========================================================
-  // CUSTOMER NAME — ROBUST
-  // =========================================================
-
-  const getCustomerName = (item) => {
-    if (!item) return "";
-
-    const direct =
-      item.customer ??
-      item.customerName ??
-      item.name ??
-      item.partyName ??
-      item.party ??
-      item.clientName ??
-      item.customer_name ??
-      item.customername ??
-      "";
-
-    if (typeof direct === "string" && direct.trim()) {
-      return direct.trim();
+    if (m) {
+      return `mobile:${m}`;
     }
 
-    // Nested customer object support
-    if (item.customer && typeof item.customer === "object") {
-      return (
-        item.customer.name ||
-        item.customer.customerName ||
-        item.customer.customer_name ||
-        ""
-      );
-    }
-
-    if (item.customerDetails && typeof item.customerDetails === "object") {
-      return (
-        item.customerDetails.name ||
-        item.customerDetails.customerName ||
-        item.customerDetails.customer_name ||
-        ""
-      );
+    if (n) {
+      return `name:${n}`;
     }
 
     return "";
   };
-
-  // =========================================================
-  // CUSTOMER MOBILE — ROBUST
-  // =========================================================
-
-  const getCustomerMobile = (item) => {
-    if (!item) return "";
-
-    const direct =
-      item.mobile ??
-      item.phone ??
-      item.customerMobile ??
-      item.customerPhone ??
-      item.partyMobile ??
-      item.partyPhone ??
-      item.clientMobile ??
-      item.customer_mobile ??
-      item.customer_phone ??
-      "";
-
-    if (
-      typeof direct === "string" ||
-      typeof direct === "number"
-    ) {
-      if (String(direct).trim()) {
-        return String(direct).trim();
-      }
-    }
-
-    // Nested customer object
-    if (item.customer && typeof item.customer === "object") {
-      return (
-        item.customer.mobile ||
-        item.customer.phone ||
-        item.customer.customerMobile ||
-        item.customer.customerPhone ||
-        ""
-      );
-    }
-
-    if (item.customerDetails && typeof item.customerDetails === "object") {
-      return (
-        item.customerDetails.mobile ||
-        item.customerDetails.phone ||
-        item.customerDetails.customerMobile ||
-        ""
-      );
-    }
-
-    return "";
-  };
-
-  // =========================================================
-  // ACTIVITY TIME
-  // =========================================================
-
-  const getActivityTime = (item) => {
-    if (!item) return 0;
-
-    const candidates = [
-      item.updatedAt,
-      item.createdAt,
-      item.date,
-      item.billDate,
-      item.created_at,
-      item.updated_at,
-      item.timestamp,
-    ];
-
-    for (const value of candidates) {
-      if (!value) continue;
-
-      const time = new Date(value).getTime();
-
-      if (Number.isFinite(time)) {
-        return time;
-      }
-
-      const numeric = Number(value);
-
-      if (Number.isFinite(numeric) && numeric > 0) {
-        return numeric;
-      }
-    }
-
-    return 0;
-  };
-
-  // =========================================================
-  // BILL TOTAL
-  // =========================================================
-
-  const getBillTotal = (bill) => {
-    if (!bill) return 0;
-
-    const directFields = [
-      "total",
-      "grandTotal",
-      "totalAmount",
-      "billTotal",
-      "netTotal",
-      "amount",
-      "finalTotal",
-      "payableAmount",
-      "netAmount",
-      "grand_total",
-      "total_amount",
-    ];
-
-    for (const field of directFields) {
-      const value = Number(bill[field]);
-
-      if (Number.isFinite(value)) {
-        return roundMoney(value);
-      }
-    }
-
-    // Nested totals
-    if (bill.summary && typeof bill.summary === "object") {
-      const nestedFields = [
-        "total",
-        "grandTotal",
-        "totalAmount",
-        "netTotal",
-        "amount",
-      ];
-
-      for (const field of nestedFields) {
-        const value = Number(bill.summary[field]);
-
-        if (Number.isFinite(value)) {
-          return roundMoney(value);
-        }
-      }
-    }
-
-    // Calculate from items
-    const items =
-      bill.items ||
-      bill.billItems ||
-      bill.products ||
-      bill.medicines ||
-      [];
-
-    if (Array.isArray(items)) {
-      let total = 0;
-
-      items.forEach((item) => {
-        const qty = Number(
-          item.quantity ??
-            item.qty ??
-            item.saleQty ??
-            item.soldQuantity ??
-            0
-        );
-
-        const rate = Number(
-          item.saleRate ??
-            item.sellingRate ??
-            item.rate ??
-            item.mrp ??
-            item.price ??
-            0
-        );
-
-        const itemTotal = Number(
-          item.total ??
-            item.amount ??
-            item.itemTotal ??
-            item.lineTotal
-        );
-
-        if (Number.isFinite(itemTotal)) {
-          total += itemTotal;
-        } else {
-          total += qty * rate;
-        }
-      });
-
-      return roundMoney(total);
-    }
-
-    return 0;
-  };
-
-  // =========================================================
-  // BILL PAID
-  // =========================================================
-
-  const getBillPaid = (bill) => {
-    if (!bill) return 0;
-
-    const directFields = [
-      "billPaid",
-      "paidNow",
-      "jama",
-      "paidAtBill",
-      "paymentReceived",
-      "receivedAtBill",
-      "paidAmount",
-      "receivedAmount",
-      "received",
-      "paid",
-      "payment",
-      "cashReceived",
-      "cashPaid",
-      "paid_amount",
-    ];
-
-    for (const field of directFields) {
-      const value = Number(bill[field]);
-
-      if (Number.isFinite(value)) {
-        return roundMoney(value);
-      }
-    }
-
-    return 0;
-  };
-
-  // =========================================================
-  // ADVANCE ADJUSTED IN BILL
-  // =========================================================
-
-  const getBillAdvanceAdjusted = (bill) => {
-    if (!bill) return 0;
-
-    const fields = [
-      "advanceAdjusted",
-      "advanceAdjustment",
-      "adjustedAdvance",
-      "advanceUsed",
-      "advanceUsedAmount",
-      "oldAdvanceAdjusted",
-      "advanceApplied",
-      "advance_adjusted",
-      "advance_adjustment",
-      "advance_used",
-      "advanceAppliedAmount",
-    ];
-
-    for (const field of fields) {
-      const value = Number(bill[field]);
-
-      if (Number.isFinite(value)) {
-        return roundMoney(value);
-      }
-    }
-
-    return 0;
-  };
-
-  // =========================================================
-  // BILL UDHARI
-  // =========================================================
-
-  const getBillUdhari = (bill) => {
-    if (!bill) return 0;
-
-    const fields = [
-      "udhari",
-      "credit",
-      "creditAmount",
-      "pending",
-      "pendingAmount",
-      "balance",
-      "due",
-      "dueAmount",
-      "remaining",
-      "remainingAmount",
-      "udhariAmount",
-      "credit_amount",
-      "pending_amount",
-    ];
-
-    for (const field of fields) {
-      const value = Number(bill[field]);
-
-      if (Number.isFinite(value)) {
-        return roundMoney(value);
-      }
-    }
-
-    const total = getBillTotal(bill);
-    const paid = getBillPaid(bill);
-    const advanceAdjusted = getBillAdvanceAdjusted(bill);
-
-    const calculated = total - paid - advanceAdjusted;
-
-    return calculated > 0 ? roundMoney(calculated) : 0;
-  };
-
-  // =========================================================
-  // PAYMENT AMOUNT
-  // =========================================================
-
-  const getPaymentAmount = (payment) => {
-    if (!payment) return 0;
-
-    const fields = [
-      "amount",
-      "paymentAmount",
-      "paidAmount",
-      "jama",
-      "received",
-      "receivedAmount",
-      "payment",
-      "value",
-    ];
-
-    for (const field of fields) {
-      const value = Number(payment[field]);
-
-      if (Number.isFinite(value)) {
-        return roundMoney(value);
-      }
-    }
-
-    return 0;
-  };
-
-  // =========================================================
-  // SAVED UDHARI ADJUSTMENT
-  // =========================================================
-
-  const getSavedUdhariAdjustment = (payment) => {
-    if (!payment) return 0;
-
-    const fields = [
-      "udhariAdjustment",
-      "adjustedUdhari",
-      "creditAdjustment",
-      "adjustedCredit",
-    ];
-
-    for (const field of fields) {
-      const value = Number(payment[field]);
-
-      if (Number.isFinite(value)) {
-        return roundMoney(value);
-      }
-    }
-
-    return 0;
-  };
-
-  // =========================================================
-  // SAVED ADVANCE
-  // =========================================================
-
-  const getSavedAdvance = (item) => {
-    if (!item) return 0;
-
-    const fields = [
-      "advance",
-      "advanceAmount",
-      "customerAdvance",
-      "advancePaid",
-      "advanceReceived",
-      "amount",
-    ];
-
-    for (const field of fields) {
-      const value = Number(item[field]);
-
-      if (Number.isFinite(value)) {
-        return roundMoney(value);
-      }
-    }
-
-    return 0;
-  };
-
-  // =========================================================
-  // CUSTOMER MATCH
-  // =========================================================
 
   const customerMatches = (item, customer) => {
-    if (!item || !customer) return false;
+    if (!item || !customer) {
+      return false;
+    }
 
-    const itemName = normalizeName(getCustomerName(item));
-    const itemMobile = normalizeMobile(getCustomerMobile(item));
+    const itemName = normalizeText(
+      getCustomerName(item)
+    );
 
-    const customerName = normalizeName(customer.name);
-    const customerMobile = normalizeMobile(customer.mobile);
+    const itemMobile = normalizeMobile(
+      getCustomerMobile(item)
+    );
+
+    const customerName = normalizeText(
+      customer.name
+    );
+
+    const customerMobile = normalizeMobile(
+      customer.mobile
+    );
 
     if (
       itemMobile &&
@@ -521,140 +234,544 @@ function CustomerLedger({ setPage, goBack }) {
     return false;
   };
 
-  // =========================================================
-  // FETCH ONLINE BILLS
-  // =========================================================
+  // =====================================================
+  // DATE / TIME
+  // =====================================================
 
-  useEffect(() => {
-    let mounted = true;
+  const getActivityTime = (item) => {
+    if (!item) {
+      return 0;
+    }
 
-    const fetchBills = async () => {
-      try {
-        const response = await fetch(`${API_URL}/api/bills`, {
-          cache: "no-store",
-        });
+    const values = [
+      item.updatedAt,
+      item.createdAt,
+      item.date,
+      item.billDate,
+      item.paymentDate,
+      item.timestamp,
+      item.time,
+    ];
 
-        if (!response.ok) {
-          throw new Error(
-            `Bills API HTTP ${response.status}`
-          );
+    for (const value of values) {
+      if (!value) {
+        continue;
+      }
+
+      const dateTime = new Date(value).getTime();
+
+      if (Number.isFinite(dateTime)) {
+        return dateTime;
+      }
+
+      const numberValue = Number(value);
+
+      if (
+        Number.isFinite(numberValue) &&
+        numberValue > 0
+      ) {
+        return numberValue;
+      }
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // BILL TOTAL
+  // =====================================================
+
+  const getBillTotal = (bill) => {
+    if (!bill) {
+      return 0;
+    }
+
+    const fields = [
+      "grandTotal",
+      "totalAmount",
+      "billTotal",
+      "netTotal",
+      "finalTotal",
+      "payableAmount",
+      "netAmount",
+      "total",
+    ];
+
+    for (const field of fields) {
+      const value = positiveNumber(
+        bill[field]
+      );
+
+      if (value > 0) {
+        return value;
+      }
+    }
+
+    const items =
+      bill.items ||
+      bill.billItems ||
+      bill.products ||
+      [];
+
+    if (
+      Array.isArray(items) &&
+      items.length > 0
+    ) {
+      let itemTotal = 0;
+
+      items.forEach((item) => {
+        if (!item) {
+          return;
         }
 
-        const data = await response.json();
-
-        let billsData = [];
-
-        if (Array.isArray(data)) {
-          billsData = data;
-        } else if (
-          data &&
-          Array.isArray(data.bills)
-        ) {
-          billsData = data.bills;
-        } else if (
-          data &&
-          Array.isArray(data.data)
-        ) {
-          billsData = data.data;
-        }
-
-        if (mounted) {
-          console.log(
-            "✅ Customer Ledger: Online bills loaded:",
-            billsData.length
-          );
-
-          console.log(
-            "🧾 ONLINE BILL DATA:",
-            billsData
-          );
-
-          setOnlineBills(billsData);
-        }
-      } catch (error) {
-        console.error(
-          "❌ Customer Ledger bills fetch error:",
-          error
+        const directAmount = positiveNumber(
+          item.total ??
+            item.amount ??
+            item.itemTotal ??
+            item.lineTotal
         );
 
-        if (mounted) {
-          setOnlineBills([]);
+        if (directAmount > 0) {
+          itemTotal += directAmount;
+          return;
+        }
+
+        const quantity = Number(
+          item.quantity ??
+            item.qty ??
+            item.saleQty ??
+            0
+        );
+
+        const rate = Number(
+          item.saleRate ??
+            item.sellingRate ??
+            item.rate ??
+            item.price ??
+            item.mrp ??
+            0
+        );
+
+        if (
+          Number.isFinite(quantity) &&
+          Number.isFinite(rate) &&
+          quantity > 0 &&
+          rate > 0
+        ) {
+          itemTotal += quantity * rate;
+        }
+      });
+
+      if (itemTotal > 0) {
+        return roundMoney(itemTotal);
+      }
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // BILL PAYMENT
+  //
+  // ONLY ACTUAL PAYMENT RECEIVED AT BILL TIME
+  //
+  // IMPORTANT:
+  // Generic fields like:
+  // paidAmount
+  // receivedAmount
+  // cashReceived
+  // cashPaid
+  //
+  // are NOT used here.
+  // =====================================================
+
+  const getBillPaid = (bill) => {
+    if (!bill) {
+      return 0;
+    }
+
+    const directFields = [
+      "paidNow",
+      "billPaid",
+      "paidAtBill",
+      "paymentReceivedAtBill",
+    ];
+
+    for (const field of directFields) {
+      if (
+        bill[field] !== undefined &&
+        bill[field] !== null &&
+        bill[field] !== ""
+      ) {
+        const value = Number(
+          bill[field]
+        );
+
+        if (
+          Number.isFinite(value) &&
+          value > 0
+        ) {
+          return roundMoney(value);
         }
       }
-    };
+    }
 
-    fetchBills();
+    return 0;
+  };
 
-    return () => {
-      mounted = false;
-    };
-  }, [refresh]);
+  // =====================================================
+  // ADVANCE ADJUSTED
+  // =====================================================
 
-  // =========================================================
-  // AUTO REFRESH
-  // =========================================================
+  const getBillAdvanceAdjusted = (bill) => {
+    if (!bill) {
+      return 0;
+    }
+
+    const fields = [
+      "advanceAdjusted",
+      "advanceAdjustment",
+      "adjustedAdvance",
+      "advanceUsed",
+      "advanceUsedAmount",
+      "advanceApplied",
+      "advanceAppliedAmount",
+    ];
+
+    for (const field of fields) {
+      const value = positiveNumber(
+        bill[field]
+      );
+
+      if (value > 0) {
+        return value;
+      }
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // BILL UDHARI
+  //
+  // TOTAL - BILL PAID - ADVANCE ADJUST
+  // =====================================================
+
+  const getBillUdhari = (bill) => {
+    if (!bill) {
+      return 0;
+    }
+
+    const total = roundMoney(
+      getBillTotal(bill)
+    );
+
+    const paid = roundMoney(
+      getBillPaid(bill)
+    );
+
+    const advanceAdjusted =
+      roundMoney(
+        getBillAdvanceAdjusted(bill)
+      );
+
+    let balance =
+      total -
+      paid -
+      advanceAdjusted;
+
+    if (
+      Math.abs(balance) < 0.005
+    ) {
+      balance = 0;
+    }
+
+    if (balance < 0) {
+      balance = 0;
+    }
+
+    return roundMoney(balance);
+  };
+
+  // =====================================================
+  // CUSTOMER PAYMENT
+  // =====================================================
+
+  const getPaymentAmount = (payment) => {
+    if (!payment) {
+      return 0;
+    }
+
+    const fields = [
+      "amount",
+      "paymentAmount",
+      "paidAmount",
+      "jama",
+      "receivedAmount",
+      "received",
+      "payment",
+    ];
+
+    for (const field of fields) {
+      const value = positiveNumber(
+        payment[field]
+      );
+
+      if (value > 0) {
+        return value;
+      }
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // SAVED UDHARI ADJUSTMENT
+  // =====================================================
+
+  const getSavedUdhariAdjustment = (
+    payment
+  ) => {
+    if (!payment) {
+      return 0;
+    }
+
+    const fields = [
+      "udhariAdjustment",
+      "adjustedUdhari",
+      "creditAdjustment",
+      "adjustedCredit",
+    ];
+
+    for (const field of fields) {
+      const value = positiveNumber(
+        payment[field]
+      );
+
+      if (value > 0) {
+        return value;
+      }
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // ADVANCE
+  // =====================================================
+
+  const getSavedAdvance = (item) => {
+    if (!item) {
+      return 0;
+    }
+
+    const fields = [
+      "advance",
+      "advanceAmount",
+      "customerAdvance",
+      "advancePaid",
+      "advanceReceived",
+      "amount",
+    ];
+
+    for (const field of fields) {
+      const value = positiveNumber(
+        item[field]
+      );
+
+      if (value > 0) {
+        return value;
+      }
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // ONLINE BILLS
+  // =====================================================
+
+  const fetchOnlineBills = async () => {
+    try {
+      const response = await fetch(
+        `${API_URL}/api/bills?refresh=${Date.now()}`,
+        {
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `HTTP ${response.status}`
+        );
+      }
+
+      const data =
+        await response.json();
+
+      let list = [];
+
+      if (Array.isArray(data)) {
+        list = data;
+      } else if (
+        data &&
+        Array.isArray(data.bills)
+      ) {
+        list = data.bills;
+      } else if (
+        data &&
+        Array.isArray(data.data)
+      ) {
+        list = data.data;
+      }
+
+      setOnlineBills(list);
+      setLastUpdated(new Date());
+
+      console.log(
+        "CUSTOMER LEDGER ONLINE UPDATE:",
+        list.length
+      );
+    } catch (error) {
+      console.error(
+        "CUSTOMER LEDGER API ERROR:",
+        error
+      );
+    }
+  };
+
+  // =====================================================
+  // INITIAL LOAD
+  // =====================================================
 
   useEffect(() => {
-    const handleRefresh = () => {
-      setRefresh((v) => v + 1);
+    fetchOnlineBills();
+  }, []);
+
+  // =====================================================
+  // AUTO UPDATE EVERY 5 SECONDS
+  // =====================================================
+
+  useEffect(() => {
+    const interval =
+      setInterval(() => {
+        fetchOnlineBills();
+
+        setRefresh(
+          (value) => value + 1
+        );
+      }, 5000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
+  // =====================================================
+  // EVENTS
+  // =====================================================
+
+  useEffect(() => {
+    const refreshLedger = () => {
+      setRefresh(
+        (value) => value + 1
+      );
+
+      fetchOnlineBills();
+    };
+
+    const handleStorage = () => {
+      setRefresh(
+        (value) => value + 1
+      );
     };
 
     window.addEventListener(
       "customerLedgerUpdated",
-      handleRefresh
+      refreshLedger
     );
 
     window.addEventListener(
       "advanceUpdated",
-      handleRefresh
+      refreshLedger
     );
 
     window.addEventListener(
       "billingUpdated",
-      handleRefresh
+      refreshLedger
+    );
+
+    window.addEventListener(
+      "saleUpdated",
+      refreshLedger
+    );
+
+    window.addEventListener(
+      "customerPaymentUpdated",
+      refreshLedger
     );
 
     window.addEventListener(
       "storage",
-      handleRefresh
+      handleStorage
     );
 
     window.addEventListener(
       "focus",
-      handleRefresh
+      refreshLedger
+    );
+
+    window.addEventListener(
+      "online",
+      refreshLedger
     );
 
     return () => {
       window.removeEventListener(
         "customerLedgerUpdated",
-        handleRefresh
+        refreshLedger
       );
 
       window.removeEventListener(
         "advanceUpdated",
-        handleRefresh
+        refreshLedger
       );
 
       window.removeEventListener(
         "billingUpdated",
-        handleRefresh
+        refreshLedger
+      );
+
+      window.removeEventListener(
+        "saleUpdated",
+        refreshLedger
+      );
+
+      window.removeEventListener(
+        "customerPaymentUpdated",
+        refreshLedger
       );
 
       window.removeEventListener(
         "storage",
-        handleRefresh
+        handleStorage
       );
 
       window.removeEventListener(
         "focus",
-        handleRefresh
+        refreshLedger
+      );
+
+      window.removeEventListener(
+        "online",
+        refreshLedger
       );
     };
   }, []);
 
-  // =========================================================
-  // LOCAL DATA
-  // =========================================================
+  // =====================================================
+  // LOCAL STORAGE
+  // =====================================================
 
   const localBills = useMemo(
     () => loadArray("bills"),
@@ -662,7 +779,10 @@ function CustomerLedger({ setPage, goBack }) {
   );
 
   const customerPayments = useMemo(
-    () => loadArray("customerPayments"),
+    () =>
+      loadArray(
+        "customerPayments"
+      ),
     [refresh]
   );
 
@@ -672,46 +792,68 @@ function CustomerLedger({ setPage, goBack }) {
   );
 
   const customerAdvances = useMemo(
-    () => loadArray("customerAdvances"),
+    () =>
+      loadArray(
+        "customerAdvances"
+      ),
     [refresh]
   );
 
-  // =========================================================
-  // MERGE ONLINE + LOCAL BILLS
-  // =========================================================
+  // =====================================================
+  // MERGE ONLINE + LOCAL
+  //
+  // ONLINE DATA HAS PRIORITY
+  // =====================================================
 
   const bills = useMemo(() => {
     const result = [];
     const seen = new Set();
 
     const addBill = (bill) => {
-      if (!bill || typeof bill !== "object") return;
+      if (
+        !bill ||
+        typeof bill !== "object"
+      ) {
+        return;
+      }
 
-      const id =
+      const billNo = String(
+        bill.billNo ||
+          bill.billNumber ||
+          bill.invoiceNo ||
+          bill.invoiceNumber ||
+          ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const id = String(
         bill.id ??
-        bill.billId ??
-        bill.billNumber ??
-        bill.billNo ??
-        "";
+          bill.billId ??
+          ""
+      ).trim();
 
       let key = "";
 
-      if (id !== "") {
-        key = `id:${String(id)}`;
+      if (billNo) {
+        key = `billno:${billNo}`;
+      } else if (id) {
+        key = `id:${id}`;
       } else {
-        key = `json:${JSON.stringify(bill)}`;
+        key = `json:${JSON.stringify(
+          bill
+        )}`;
       }
 
-      if (seen.has(key)) return;
+      if (seen.has(key)) {
+        return;
+      }
 
       seen.add(key);
       result.push(bill);
     };
 
-    // ONLINE FIRST
     onlineBills.forEach(addBill);
-
-    // LOCAL SECOND
     localBills.forEach(addBill);
 
     return result.sort(
@@ -719,93 +861,156 @@ function CustomerLedger({ setPage, goBack }) {
         getActivityTime(b) -
         getActivityTime(a)
     );
-  }, [onlineBills, localBills]);
+  }, [
+    onlineBills,
+    localBills,
+  ]);
 
-  // =========================================================
-  // BUILD CUSTOMER LIST
-  // =========================================================
+  // =====================================================
+  // CUSTOMER LIST
+  //
+  // IMPORTANT:
+  // LATEST ENTRY FIRST
+  //
+  // Bill / Payment / Advance
+  // जो सबसे latest है,
+  // उस customer को सबसे ऊपर दिखाया जाएगा.
+  // =====================================================
 
   const customers = useMemo(() => {
     const map = new Map();
 
     const addCustomer = (
       item,
-      type = "unknown"
+      type
     ) => {
-      if (!item) return;
+      const name =
+        getCustomerName(item);
 
-      const name = getCustomerName(item);
-      const mobile = getCustomerMobile(item);
+      const mobile =
+        getCustomerMobile(item);
 
-      if (!name && !mobile) return;
+      if (!name && !mobile) {
+        return;
+      }
 
-      const key = makeCustomerKey(
-        name,
-        mobile
-      );
+      const key =
+        makeCustomerKey(
+          name,
+          mobile
+        );
 
-      if (!key) return;
+      if (!key) {
+        return;
+      }
+
+      const activityTime =
+        getActivityTime(item);
 
       if (!map.has(key)) {
         map.set(key, {
           key,
           name:
-            name ||
-            "Customer",
+            name || "Customer",
           mobile:
-            mobile ||
-            "",
-          types: [type],
+            mobile || "",
+          type,
+          latestActivity:
+            activityTime,
         });
-      } else {
-        const existing = map.get(key);
 
-        if (
-          name &&
-          (!existing.name ||
-            existing.name === "Customer")
-        ) {
-          existing.name = name;
-        }
+        return;
+      }
 
-        if (mobile && !existing.mobile) {
-          existing.mobile = mobile;
-        }
+      const existing =
+        map.get(key);
 
-        if (
-          type &&
-          !existing.types.includes(type)
-        ) {
-          existing.types.push(type);
-        }
+      if (
+        name &&
+        (
+          !existing.name ||
+          existing.name ===
+            "Customer"
+        )
+      ) {
+        existing.name = name;
+      }
+
+      if (
+        mobile &&
+        !existing.mobile
+      ) {
+        existing.mobile = mobile;
+      }
+
+      if (
+        activityTime >
+        existing.latestActivity
+      ) {
+        existing.latestActivity =
+          activityTime;
+
+        existing.type = type;
       }
     };
 
-    bills.forEach((bill) =>
-      addCustomer(bill, "bill")
+    // Bills
+    bills.forEach((bill) => {
+      addCustomer(
+        bill,
+        "bill"
+      );
+    });
+
+    // Customer payments
+    customerPayments.forEach(
+      (payment) => {
+        addCustomer(
+          payment,
+          "payment"
+        );
+      }
     );
 
-    customerPayments.forEach((payment) =>
-      addCustomer(payment, "payment")
+    // Advances
+    advances.forEach(
+      (advance) => {
+        addCustomer(
+          advance,
+          "advance"
+        );
+      }
     );
 
-    advances.forEach((advance) =>
-      addCustomer(advance, "advance")
+    customerAdvances.forEach(
+      (advance) => {
+        addCustomer(
+          advance,
+          "customerAdvance"
+        );
+      }
     );
 
-    customerAdvances.forEach((advance) =>
-      addCustomer(advance, "customerAdvance")
-    );
+    // ===================================================
+    // LATEST FIRST
+    // ===================================================
 
-    return Array.from(map.values()).sort(
-      (a, b) =>
-        a.name.localeCompare(
-          b.name,
-          undefined,
-          {
-            sensitivity: "base",
-          }
-        )
+    return Array.from(
+      map.values()
+    ).sort(
+      (a, b) => {
+        const timeA =
+          Number(
+            a.latestActivity || 0
+          );
+
+        const timeB =
+          Number(
+            b.latestActivity || 0
+          );
+
+        return timeB - timeA;
+      }
     );
   }, [
     bills,
@@ -814,83 +1019,116 @@ function CustomerLedger({ setPage, goBack }) {
     customerAdvances,
   ]);
 
-  // =========================================================
-  // FILTER CUSTOMER
-  // =========================================================
+  // =====================================================
+  // SEARCH
+  // =====================================================
 
-  const filteredCustomers = useMemo(() => {
-    const q = normalizeText(search);
+  const filteredCustomers =
+    useMemo(() => {
+      const q =
+        normalizeText(search);
 
-    if (!q) return customers;
+      if (!q) {
+        return customers;
+      }
 
-    const digits = normalizeMobile(search);
+      const digits =
+        normalizeMobile(search);
 
-    return customers.filter((customer) => {
-      const nameMatch =
-        normalizeName(customer.name).includes(q);
+      return customers.filter(
+        (customer) => {
+          const nameMatch =
+            normalizeText(
+              customer.name
+            ).includes(q);
 
-      const mobileMatch =
-        normalizeMobile(customer.mobile).includes(
-          digits
+          const mobileMatch =
+            digits &&
+            normalizeMobile(
+              customer.mobile
+            ).includes(digits);
+
+          return (
+            nameMatch ||
+            mobileMatch
+          );
+        }
+      );
+    }, [
+      customers,
+      search,
+    ]);
+
+  // =====================================================
+  // SELECTED BILLS
+  //
+  // LATEST BILL FIRST
+  // =====================================================
+
+  const selectedBills =
+    useMemo(() => {
+      if (!selectedCustomer) {
+        return [];
+      }
+
+      return bills
+        .filter((bill) =>
+          customerMatches(
+            bill,
+            selectedCustomer
+          )
+        )
+        .sort(
+          (a, b) =>
+            getActivityTime(b) -
+            getActivityTime(a)
         );
+    }, [
+      bills,
+      selectedCustomer,
+    ]);
 
-      return nameMatch || mobileMatch;
-    });
-  }, [customers, search]);
+  // =====================================================
+  // SELECTED PAYMENTS
+  //
+  // LATEST PAYMENT FIRST
+  // =====================================================
 
-  // =========================================================
-  // SELECTED CUSTOMER BILLS
-  // =========================================================
+  const selectedPayments =
+    useMemo(() => {
+      if (!selectedCustomer) {
+        return [];
+      }
 
-  const selectedBills = useMemo(() => {
-    if (!selectedCustomer) return [];
-
-    return bills
-      .filter((bill) =>
-        customerMatches(
-          bill,
-          selectedCustomer
+      return customerPayments
+        .filter((payment) =>
+          customerMatches(
+            payment,
+            selectedCustomer
+          )
         )
-      )
-      .sort(
-        (a, b) =>
-          getActivityTime(b) -
-          getActivityTime(a)
-      );
-  }, [bills, selectedCustomer]);
+        .sort(
+          (a, b) =>
+            getActivityTime(b) -
+            getActivityTime(a)
+        );
+    }, [
+      customerPayments,
+      selectedCustomer,
+    ]);
 
-  // =========================================================
-  // SELECTED CUSTOMER PAYMENTS
-  // =========================================================
-
-  const selectedPayments = useMemo(() => {
-    if (!selectedCustomer) return [];
-
-    return customerPayments
-      .filter((payment) =>
-        customerMatches(
-          payment,
-          selectedCustomer
-        )
-      )
-      .sort(
-        (a, b) =>
-          getActivityTime(b) -
-          getActivityTime(a)
-      );
-  }, [
-    customerPayments,
-    selectedCustomer,
-  ]);
-
-  // =========================================================
+  // =====================================================
   // CURRENT ADVANCE
-  // =========================================================
+  // =====================================================
 
-  const getCurrentAdvance = (customer) => {
-    if (!customer) return 0;
+  const getCurrentAdvance = (
+    customer
+  ) => {
+    if (!customer) {
+      return 0;
+    }
 
-    let totalAdvance = 0;
+    let advanceTotal = 0;
 
     advances.forEach((item) => {
       if (
@@ -899,36 +1137,45 @@ function CustomerLedger({ setPage, goBack }) {
           customer
         )
       ) {
-        totalAdvance += getSavedAdvance(item);
+        advanceTotal +=
+          getSavedAdvance(item);
       }
     });
 
-    customerAdvances.forEach((item) => {
-      if (
-        customerMatches(
-          item,
-          customer
-        )
-      ) {
-        totalAdvance += getSavedAdvance(item);
+    customerAdvances.forEach(
+      (item) => {
+        if (
+          customerMatches(
+            item,
+            customer
+          )
+        ) {
+          advanceTotal +=
+            getSavedAdvance(item);
+        }
       }
-    });
+    );
 
-    selectedBillsForAdvance:
-    selectedBills.forEach((bill) => {
-      totalAdvance -= getBillAdvanceAdjusted(
-        bill
-      );
-    });
+    selectedBills.forEach(
+      (bill) => {
+        advanceTotal -=
+          getBillAdvanceAdjusted(
+            bill
+          );
+      }
+    );
 
     return roundMoney(
-      Math.max(0, totalAdvance)
+      Math.max(
+        0,
+        advanceTotal
+      )
     );
   };
 
-  // =========================================================
+  // =====================================================
   // CUSTOMER CALCULATION
-  // =========================================================
+  // =====================================================
 
   const getCustomerCalculation = (
     customer
@@ -945,15 +1192,15 @@ function CustomerLedger({ setPage, goBack }) {
       };
     }
 
-    const customerBills = bills.filter(
-      (bill) =>
+    const customerBills =
+      bills.filter((bill) =>
         customerMatches(
           bill,
           customer
         )
-    );
+      );
 
-    const customerPaymentList =
+    const payments =
       customerPayments.filter(
         (payment) =>
           customerMatches(
@@ -967,77 +1214,120 @@ function CustomerLedger({ setPage, goBack }) {
     let totalUdhari = 0;
     let totalAdvanceAdjusted = 0;
 
-    customerBills.forEach((bill) => {
-      const total = getBillTotal(bill);
-      const paid = getBillPaid(bill);
-      const advanceAdjusted =
-        getBillAdvanceAdjusted(bill);
+    customerBills.forEach(
+      (bill) => {
+        const total =
+          getBillTotal(bill);
 
-      totalBills += total;
-      totalPaid += paid;
-      totalAdvanceAdjusted +=
-        advanceAdjusted;
+        const paid =
+          getBillPaid(bill);
 
-      totalUdhari += getBillUdhari(bill);
-    });
+        const advanceAdjusted =
+          getBillAdvanceAdjusted(
+            bill
+          );
 
-    let totalPayment = 0;
+        const billUdhari =
+          getBillUdhari(bill);
 
-    customerPaymentList.forEach(
-      (payment) => {
-        totalPayment +=
-          getPaymentAmount(payment);
+        totalBills += total;
+        totalPaid += paid;
 
-        totalUdhari -=
-          getSavedUdhariAdjustment(payment);
+        totalAdvanceAdjusted +=
+          advanceAdjusted;
+
+        totalUdhari +=
+          billUdhari;
       }
     );
 
-    totalUdhari = Math.max(
-      0,
-      totalUdhari
+    let totalPayment = 0;
+
+    payments.forEach(
+      (payment) => {
+        totalPayment +=
+          getPaymentAmount(
+            payment
+          );
+      }
     );
 
-    const totalAdvance =
-      getCurrentAdvance(customer);
+    totalBills =
+      roundMoney(totalBills);
 
-    const finalBalance =
+    totalPaid =
+      roundMoney(totalPaid);
+
+    totalUdhari =
+      roundMoney(totalUdhari);
+
+    totalPayment =
+      roundMoney(totalPayment);
+
+    totalAdvanceAdjusted =
+      roundMoney(
+        totalAdvanceAdjusted
+      );
+
+    let finalBalance =
       totalUdhari -
       totalPayment;
 
+    if (
+      Math.abs(finalBalance) <
+      0.005
+    ) {
+      finalBalance = 0;
+    }
+
+    finalBalance =
+      roundMoney(
+        Math.max(
+          0,
+          finalBalance
+        )
+      );
+
+    const totalAdvance =
+      getCurrentAdvance(
+        customer
+      );
+
     return {
-      totalBills: roundMoney(totalBills),
-      totalPaid: roundMoney(totalPaid),
-      totalUdhari: roundMoney(totalUdhari),
-      totalPayment: roundMoney(totalPayment),
-      totalAdvance: roundMoney(totalAdvance),
-      totalAdvanceAdjusted:
+      totalBills,
+      totalPaid,
+      totalUdhari,
+      totalPayment,
+      totalAdvance:
         roundMoney(
-          totalAdvanceAdjusted
+          totalAdvance
         ),
-      finalBalance: roundMoney(
-        finalBalance
-      ),
+      totalAdvanceAdjusted,
+      finalBalance,
     };
   };
 
-  const customerCalculation = useMemo(
-    () =>
-      getCustomerCalculation(
+  // =====================================================
+  // SELECTED CUSTOMER CALCULATION
+  // =====================================================
+
+  const customerCalculation =
+    useMemo(() => {
+      return getCustomerCalculation(
         selectedCustomer
-      ),
-    [
+      );
+    }, [
       selectedCustomer,
       bills,
       customerPayments,
       advances,
       customerAdvances,
-    ]
-  );
+      selectedBills,
+    ]);
 
-  // =========================================================
+  // =====================================================
   // SELECT CUSTOMER
-  // =========================================================
+  // =====================================================
 
   const handleSelectCustomer = (
     customer
@@ -1046,32 +1336,40 @@ function CustomerLedger({ setPage, goBack }) {
     setShowBills(true);
   };
 
-  // =========================================================
+  // =====================================================
   // REFRESH
-  // =========================================================
+  // =====================================================
 
-  const handleRefresh = () => {
-    setRefresh((v) => v + 1);
+  const handleRefresh = async () => {
+    setRefresh(
+      (value) => value + 1
+    );
+
+    await fetchOnlineBills();
   };
 
-  // =========================================================
+  // =====================================================
   // BACK
-  // =========================================================
+  // =====================================================
 
   const handleBack = () => {
-    if (typeof goBack === "function") {
+    if (
+      typeof goBack === "function"
+    ) {
       goBack();
       return;
     }
 
-    if (typeof setPage === "function") {
+    if (
+      typeof setPage === "function"
+    ) {
       setPage("dashboard");
     }
   };
 
-  // =========================================================
+  // =====================================================
   // UI
-  // =========================================================
+  // =====================================================
 
   return (
     <div
@@ -1083,42 +1381,65 @@ function CustomerLedger({ setPage, goBack }) {
       }}
     >
       {/* HEADER */}
+
       <div
         style={{
           display: "flex",
-          justifyContent: "space-between",
+          justifyContent:
+            "space-between",
           alignItems: "center",
           gap: "10px",
           flexWrap: "wrap",
           marginBottom: "15px",
         }}
       >
-        <h2
-          style={{
-            margin: 0,
-            fontSize: "24px",
-          }}
-        >
-          👤 Customer Ledger
-        </h2>
+        <div>
+          <h2
+            style={{
+              margin: 0,
+            }}
+          >
+            👤 Customer Ledger
+          </h2>
+
+          <div
+            style={{
+              marginTop: "5px",
+              fontSize: "12px",
+              color: "#777",
+            }}
+          >
+            🟢 Auto Update: हर 5 सेकंड
+            {lastUpdated
+              ? ` • Last update: ${lastUpdated.toLocaleTimeString(
+                  "en-IN"
+                )}`
+              : ""}
+          </div>
+        </div>
 
         <div
           style={{
             display: "flex",
             gap: "8px",
-            flexWrap: "wrap",
           }}
         >
           <button
-            onClick={handleRefresh}
+            onClick={
+              handleRefresh
+            }
             style={{
-              padding: "9px 14px",
+              padding:
+                "9px 14px",
               border: "none",
               borderRadius: "7px",
-              cursor: "pointer",
-              background: "#1976d2",
+              background:
+                "#1976d2",
               color: "#fff",
-              fontWeight: "600",
+              fontWeight:
+                "600",
+              cursor:
+                "pointer",
             }}
           >
             🔄 Refresh
@@ -1127,13 +1448,17 @@ function CustomerLedger({ setPage, goBack }) {
           <button
             onClick={handleBack}
             style={{
-              padding: "9px 14px",
+              padding:
+                "9px 14px",
               border: "none",
               borderRadius: "7px",
-              cursor: "pointer",
-              background: "#555",
+              background:
+                "#555",
               color: "#fff",
-              fontWeight: "600",
+              fontWeight:
+                "600",
+              cursor:
+                "pointer",
             }}
           >
             ← Back
@@ -1142,62 +1467,70 @@ function CustomerLedger({ setPage, goBack }) {
       </div>
 
       {/* SEARCH */}
+
       <div
         style={{
           background: "#fff",
           padding: "12px",
           borderRadius: "10px",
           marginBottom: "15px",
-          boxShadow:
-            "0 1px 5px rgba(0,0,0,0.08)",
         }}
       >
         <input
           type="text"
-          placeholder="🔍 Customer name / mobile search..."
           value={search}
           onChange={(e) =>
-            setSearch(e.target.value)
+            setSearch(
+              e.target.value
+            )
           }
+          placeholder="🔍 Customer name / mobile search..."
           style={{
             width: "100%",
             padding: "12px",
-            boxSizing: "border-box",
-            border: "1px solid #ccc",
+            boxSizing:
+              "border-box",
+            border:
+              "1px solid #ccc",
             borderRadius: "7px",
             fontSize: "16px",
-            outline: "none",
           }}
         />
       </div>
 
       {/* CUSTOMER LIST */}
+
       <div
         style={{
           background: "#fff",
           borderRadius: "10px",
           overflow: "hidden",
-          boxShadow:
-            "0 1px 5px rgba(0,0,0,0.08)",
           marginBottom: "15px",
         }}
       >
         <div
           style={{
             padding: "12px",
-            fontWeight: "700",
+            fontWeight:
+              "700",
             borderBottom:
               "1px solid #eee",
           }}
         >
-          Customers ({filteredCustomers.length})
+          Customers (
+          {
+            filteredCustomers.length
+          }
+          )
         </div>
 
-        {filteredCustomers.length === 0 ? (
+        {filteredCustomers.length ===
+        0 ? (
           <div
             style={{
               padding: "25px",
-              textAlign: "center",
+              textAlign:
+                "center",
               color: "#777",
             }}
           >
@@ -1206,7 +1539,8 @@ function CustomerLedger({ setPage, goBack }) {
         ) : (
           <div
             style={{
-              overflowX: "auto",
+              overflowX:
+                "auto",
             }}
           >
             <table
@@ -1214,7 +1548,8 @@ function CustomerLedger({ setPage, goBack }) {
                 width: "100%",
                 borderCollapse:
                   "collapse",
-                minWidth: "500px",
+                minWidth:
+                  "550px",
               }}
             >
               <thead>
@@ -1226,8 +1561,10 @@ function CustomerLedger({ setPage, goBack }) {
                 >
                   <th
                     style={{
-                      padding: "10px",
-                      textAlign: "left",
+                      padding:
+                        "10px",
+                      textAlign:
+                        "left",
                     }}
                   >
                     Customer
@@ -1235,8 +1572,10 @@ function CustomerLedger({ setPage, goBack }) {
 
                   <th
                     style={{
-                      padding: "10px",
-                      textAlign: "left",
+                      padding:
+                        "10px",
+                      textAlign:
+                        "left",
                     }}
                   >
                     Mobile
@@ -1244,8 +1583,10 @@ function CustomerLedger({ setPage, goBack }) {
 
                   <th
                     style={{
-                      padding: "10px",
-                      textAlign: "right",
+                      padding:
+                        "10px",
+                      textAlign:
+                        "right",
                     }}
                   >
                     Bill
@@ -1253,8 +1594,10 @@ function CustomerLedger({ setPage, goBack }) {
 
                   <th
                     style={{
-                      padding: "10px",
-                      textAlign: "right",
+                      padding:
+                        "10px",
+                      textAlign:
+                        "right",
                     }}
                   >
                     Balance
@@ -1285,7 +1628,8 @@ function CustomerLedger({ setPage, goBack }) {
                           )
                         }
                         style={{
-                          cursor: "pointer",
+                          cursor:
+                            "pointer",
                           background:
                             isSelected
                               ? "#eaf3ff"
@@ -1296,26 +1640,33 @@ function CustomerLedger({ setPage, goBack }) {
                       >
                         <td
                           style={{
-                            padding: "10px",
+                            padding:
+                              "10px",
                             fontWeight:
                               "600",
                           }}
                         >
-                          {customer.name}
+                          {
+                            customer.name
+                          }
                         </td>
 
                         <td
                           style={{
-                            padding: "10px",
+                            padding:
+                              "10px",
                           }}
                         >
-                          {customer.mobile ||
-                            "-"}
+                          {
+                            customer.mobile ||
+                            "-"
+                          }
                         </td>
 
                         <td
                           style={{
-                            padding: "10px",
+                            padding:
+                              "10px",
                             textAlign:
                               "right",
                           }}
@@ -1327,7 +1678,8 @@ function CustomerLedger({ setPage, goBack }) {
 
                         <td
                           style={{
-                            padding: "10px",
+                            padding:
+                              "10px",
                             textAlign:
                               "right",
                             fontWeight:
@@ -1354,27 +1706,31 @@ function CustomerLedger({ setPage, goBack }) {
       </div>
 
       {/* SELECTED CUSTOMER */}
+
       {selectedCustomer && (
         <>
-          {/* CUSTOMER HEADER */}
           <div
             style={{
               background: "#fff",
-              borderRadius: "10px",
-              padding: "15px",
-              marginBottom: "15px",
-              boxShadow:
-                "0 1px 5px rgba(0,0,0,0.08)",
+              borderRadius:
+                "10px",
+              padding:
+                "15px",
+              marginBottom:
+                "15px",
             }}
           >
             <div
               style={{
-                display: "flex",
+                display:
+                  "flex",
                 justifyContent:
                   "space-between",
-                alignItems: "center",
+                alignItems:
+                  "center",
+                flexWrap:
+                  "wrap",
                 gap: "10px",
-                flexWrap: "wrap",
               }}
             >
               <div>
@@ -1385,12 +1741,15 @@ function CustomerLedger({ setPage, goBack }) {
                   }}
                 >
                   👤{" "}
-                  {selectedCustomer.name}
+                  {
+                    selectedCustomer.name
+                  }
                 </h3>
 
                 <div
                   style={{
-                    color: "#666",
+                    color:
+                      "#666",
                   }}
                 >
                   📱{" "}
@@ -1402,18 +1761,21 @@ function CustomerLedger({ setPage, goBack }) {
               <button
                 onClick={() =>
                   setShowBills(
-                    !showBills
+                    (value) =>
+                      !value
                   )
                 }
                 style={{
                   padding:
                     "9px 14px",
-                  border: "none",
+                  border:
+                    "none",
                   borderRadius:
                     "7px",
                   background:
                     "#1976d2",
-                  color: "#fff",
+                  color:
+                    "#fff",
                   cursor:
                     "pointer",
                 }}
@@ -1425,285 +1787,155 @@ function CustomerLedger({ setPage, goBack }) {
             </div>
           </div>
 
-          {/* SUMMARY CARDS */}
+          {/* SUMMARY */}
+
           <div
             style={{
-              display: "grid",
+              display:
+                "grid",
               gridTemplateColumns:
                 "repeat(auto-fit,minmax(160px,1fr))",
               gap: "10px",
-              marginBottom: "15px",
+              marginBottom:
+                "15px",
             }}
           >
-            <div
-              style={{
-                background: "#fff",
-                padding: "15px",
-                borderRadius: "10px",
-                boxShadow:
-                  "0 1px 5px rgba(0,0,0,0.08)",
-              }}
-            >
-              <div
-                style={{
-                  color: "#777",
-                  fontSize:
-                    "13px",
-                }}
-              >
-                Total Bills
-              </div>
+            {[
+              [
+                "Total Bills",
+                customerCalculation.totalBills,
+                "#222",
+              ],
+              [
+                "Bill Payment",
+                customerCalculation.totalPaid,
+                "#222",
+              ],
+              [
+                "Udhari",
+                customerCalculation.totalUdhari,
+                "#d32f2f",
+              ],
+              [
+                "Payment Received",
+                customerCalculation.totalPayment,
+                "#2e7d32",
+              ],
+              [
+                "Advance",
+                customerCalculation.totalAdvance,
+                "#1565c0",
+              ],
+              [
+                "Final Balance",
+                customerCalculation.finalBalance,
+                customerCalculation.finalBalance >
+                0
+                  ? "#d32f2f"
+                  : "#2e7d32",
+              ],
+            ].map(
+              ([title, value, color]) => (
+                <div
+                  key={title}
+                  style={{
+                    background:
+                      "#fff",
+                    padding:
+                      "15px",
+                    borderRadius:
+                      "10px",
+                  }}
+                >
+                  <div
+                    style={{
+                      color:
+                        "#777",
+                      fontSize:
+                        "13px",
+                    }}
+                  >
+                    {title}
+                  </div>
 
-              <div
-                style={{
-                  fontSize: "20px",
-                  fontWeight:
-                    "700",
-                  marginTop:
-                    "5px",
-                }}
-              >
-                {money(
-                  customerCalculation.totalBills
-                )}
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#fff",
-                padding: "15px",
-                borderRadius: "10px",
-                boxShadow:
-                  "0 1px 5px rgba(0,0,0,0.08)",
-              }}
-            >
-              <div
-                style={{
-                  color: "#777",
-                  fontSize:
-                    "13px",
-                }}
-              >
-                Bill Payment
-              </div>
-
-              <div
-                style={{
-                  fontSize: "20px",
-                  fontWeight:
-                    "700",
-                  marginTop:
-                    "5px",
-                }}
-              >
-                {money(
-                  customerCalculation.totalPaid
-                )}
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#fff",
-                padding: "15px",
-                borderRadius: "10px",
-                boxShadow:
-                  "0 1px 5px rgba(0,0,0,0.08)",
-              }}
-            >
-              <div
-                style={{
-                  color: "#777",
-                  fontSize:
-                    "13px",
-                }}
-              >
-                Udhari
-              </div>
-
-              <div
-                style={{
-                  fontSize: "20px",
-                  fontWeight:
-                    "700",
-                  marginTop:
-                    "5px",
-                  color:
-                    "#d32f2f",
-                }}
-              >
-                {money(
-                  customerCalculation.totalUdhari
-                )}
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#fff",
-                padding: "15px",
-                borderRadius: "10px",
-                boxShadow:
-                  "0 1px 5px rgba(0,0,0,0.08)",
-              }}
-            >
-              <div
-                style={{
-                  color: "#777",
-                  fontSize:
-                    "13px",
-                }}
-              >
-                Payment Received
-              </div>
-
-              <div
-                style={{
-                  fontSize: "20px",
-                  fontWeight:
-                    "700",
-                  marginTop:
-                    "5px",
-                  color:
-                    "#2e7d32",
-                }}
-              >
-                {money(
-                  customerCalculation.totalPayment
-                )}
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#fff",
-                padding: "15px",
-                borderRadius: "10px",
-                boxShadow:
-                  "0 1px 5px rgba(0,0,0,0.08)",
-              }}
-            >
-              <div
-                style={{
-                  color: "#777",
-                  fontSize:
-                    "13px",
-                }}
-              >
-                Advance
-              </div>
-
-              <div
-                style={{
-                  fontSize: "20px",
-                  fontWeight:
-                    "700",
-                  marginTop:
-                    "5px",
-                  color:
-                    "#1565c0",
-                }}
-              >
-                {money(
-                  customerCalculation.totalAdvance
-                )}
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#fff",
-                padding: "15px",
-                borderRadius: "10px",
-                boxShadow:
-                  "0 1px 5px rgba(0,0,0,0.08)",
-              }}
-            >
-              <div
-                style={{
-                  color: "#777",
-                  fontSize:
-                    "13px",
-                }}
-              >
-                Final Balance
-              </div>
-
-              <div
-                style={{
-                  fontSize: "20px",
-                  fontWeight:
-                    "700",
-                  marginTop:
-                    "5px",
-                  color:
-                    customerCalculation.finalBalance >
-                    0
-                      ? "#d32f2f"
-                      : "#2e7d32",
-                }}
-              >
-                {money(
-                  customerCalculation.finalBalance
-                )}
-              </div>
-            </div>
+                  <div
+                    style={{
+                      fontSize:
+                        "20px",
+                      fontWeight:
+                        "700",
+                      marginTop:
+                        "5px",
+                      color,
+                    }}
+                  >
+                    {money(
+                      value
+                    )}
+                  </div>
+                </div>
+              )
+            )}
           </div>
 
-          {/* PAYMENT BUTTON */}
+          {/* CUSTOMER PAYMENT */}
+
           {typeof setPage ===
             "function" && (
-            <div
+            <button
+              onClick={() =>
+                setPage(
+                  "customerPayment"
+                )
+              }
               style={{
-                marginBottom: "15px",
+                width:
+                  "100%",
+                padding:
+                  "12px",
+                border:
+                  "none",
+                borderRadius:
+                  "8px",
+                background:
+                  "#2e7d32",
+                color:
+                  "#fff",
+                fontSize:
+                  "16px",
+                fontWeight:
+                  "700",
+                cursor:
+                  "pointer",
+                marginBottom:
+                  "15px",
               }}
             >
-              <button
-                onClick={() =>
-                  setPage(
-                    "customerPayment"
-                  )
-                }
-                style={{
-                  width: "100%",
-                  padding:
-                    "12px",
-                  border: "none",
-                  borderRadius:
-                    "8px",
-                  background:
-                    "#2e7d32",
-                  color: "#fff",
-                  fontSize:
-                    "16px",
-                  fontWeight:
-                    "700",
-                  cursor:
-                    "pointer",
-                }}
-              >
-                💰 Customer Payment
-              </button>
-            </div>
+              💰 Customer Payment
+            </button>
           )}
 
-          {/* BILLS */}
+          {/* BILL HISTORY */}
+
           {showBills && (
             <div
               style={{
-                background: "#fff",
-                borderRadius: "10px",
-                marginBottom: "15px",
-                overflow: "hidden",
-                boxShadow:
-                  "0 1px 5px rgba(0,0,0,0.08)",
+                background:
+                  "#fff",
+                borderRadius:
+                  "10px",
+                overflow:
+                  "hidden",
+                marginBottom:
+                  "15px",
               }}
             >
               <div
                 style={{
-                  padding: "12px",
-                  fontWeight: "700",
+                  padding:
+                    "12px",
+                  fontWeight:
+                    "700",
                   borderBottom:
                     "1px solid #eee",
                 }}
@@ -1719,10 +1951,12 @@ function CustomerLedger({ setPage, goBack }) {
               0 ? (
                 <div
                   style={{
-                    padding: "20px",
+                    padding:
+                      "20px",
                     textAlign:
                       "center",
-                    color: "#777",
+                    color:
+                      "#777",
                   }}
                 >
                   No bills found
@@ -1821,7 +2055,10 @@ function CustomerLedger({ setPage, goBack }) {
 
                     <tbody>
                       {selectedBills.map(
-                        (bill, index) => {
+                        (
+                          bill,
+                          index
+                        ) => {
                           const total =
                             getBillTotal(
                               bill
@@ -1853,24 +2090,19 @@ function CustomerLedger({ setPage, goBack }) {
                           if (
                             dateValue
                           ) {
-                            const d =
+                            const date =
                               new Date(
                                 dateValue
                               );
 
                             if (
                               !Number.isNaN(
-                                d.getTime()
+                                date.getTime()
                               )
                             ) {
                               dateText =
-                                d.toLocaleDateString(
+                                date.toLocaleDateString(
                                   "en-IN"
-                                );
-                            } else {
-                              dateText =
-                                String(
-                                  dateValue
                                 );
                             }
                           }
@@ -1886,8 +2118,10 @@ function CustomerLedger({ setPage, goBack }) {
                           return (
                             <tr
                               key={
+                                bill.billNo ||
+                                bill.billNumber ||
                                 bill.id ||
-                                `${billNo}-${index}`
+                                `bill-${index}`
                               }
                               style={{
                                 borderBottom:
@@ -1900,9 +2134,7 @@ function CustomerLedger({ setPage, goBack }) {
                                     "9px",
                                 }}
                               >
-                                {
-                                  dateText
-                                }
+                                {dateText}
                               </td>
 
                               <td
@@ -1911,9 +2143,7 @@ function CustomerLedger({ setPage, goBack }) {
                                     "9px",
                                 }}
                               >
-                                {
-                                  billNo
-                                }
+                                {billNo}
                               </td>
 
                               <td
@@ -1963,13 +2193,13 @@ function CustomerLedger({ setPage, goBack }) {
                                     "9px",
                                   textAlign:
                                     "right",
+                                  fontWeight:
+                                    "700",
                                   color:
                                     udhari >
                                     0
                                       ? "#d32f2f"
                                       : "#2e7d32",
-                                  fontWeight:
-                                    "700",
                                 }}
                               >
                                 {money(
@@ -1988,20 +2218,25 @@ function CustomerLedger({ setPage, goBack }) {
           )}
 
           {/* CUSTOMER PAYMENTS */}
+
           <div
             style={{
-              background: "#fff",
-              borderRadius: "10px",
-              overflow: "hidden",
-              boxShadow:
-                "0 1px 5px rgba(0,0,0,0.08)",
-              marginBottom: "15px",
+              background:
+                "#fff",
+              borderRadius:
+                "10px",
+              overflow:
+                "hidden",
+              marginBottom:
+                "15px",
             }}
           >
             <div
               style={{
-                padding: "12px",
-                fontWeight: "700",
+                padding:
+                  "12px",
+                fontWeight:
+                  "700",
                 borderBottom:
                   "1px solid #eee",
               }}
@@ -2017,10 +2252,12 @@ function CustomerLedger({ setPage, goBack }) {
             0 ? (
               <div
                 style={{
-                  padding: "20px",
+                  padding:
+                    "20px",
                   textAlign:
                     "center",
-                  color: "#777",
+                  color:
+                    "#777",
                 }}
               >
                 No payment entries
@@ -2034,7 +2271,8 @@ function CustomerLedger({ setPage, goBack }) {
               >
                 <table
                   style={{
-                    width: "100%",
+                    width:
+                      "100%",
                     borderCollapse:
                       "collapse",
                     minWidth:
@@ -2121,24 +2359,19 @@ function CustomerLedger({ setPage, goBack }) {
                         if (
                           dateValue
                         ) {
-                          const d =
+                          const date =
                             new Date(
                               dateValue
                             );
 
                           if (
                             !Number.isNaN(
-                              d.getTime()
+                              date.getTime()
                             )
                           ) {
                             dateText =
-                              d.toLocaleDateString(
+                              date.toLocaleDateString(
                                 "en-IN"
-                              );
-                          } else {
-                            dateText =
-                              String(
-                                dateValue
                               );
                           }
                         }
@@ -2160,9 +2393,7 @@ function CustomerLedger({ setPage, goBack }) {
                                   "9px",
                               }}
                             >
-                              {
-                                dateText
-                              }
+                              {dateText}
                             </td>
 
                             <td
@@ -2219,38 +2450,34 @@ function CustomerLedger({ setPage, goBack }) {
           </div>
 
           {/* FINAL SUMMARY */}
+
           <div
             style={{
-              background: "#fff",
-              borderRadius: "10px",
-              padding: "15px",
-              boxShadow:
-                "0 1px 5px rgba(0,0,0,0.08)",
+              background:
+                "#fff",
+              borderRadius:
+                "10px",
+              padding:
+                "15px",
             }}
           >
-            <h3
-              style={{
-                marginTop: 0,
-              }}
-            >
+            <h3>
               📊 Final Payment Summary
             </h3>
 
             <div
               style={{
-                display: "grid",
-                gap: "8px",
+                display:
+                  "grid",
+                gap: "10px",
               }}
             >
               <div
                 style={{
-                  display: "flex",
+                  display:
+                    "flex",
                   justifyContent:
                     "space-between",
-                  borderBottom:
-                    "1px solid #eee",
-                  paddingBottom:
-                    "8px",
                 }}
               >
                 <span>
@@ -2266,13 +2493,10 @@ function CustomerLedger({ setPage, goBack }) {
 
               <div
                 style={{
-                  display: "flex",
+                  display:
+                    "flex",
                   justifyContent:
                     "space-between",
-                  borderBottom:
-                    "1px solid #eee",
-                  paddingBottom:
-                    "8px",
                 }}
               >
                 <span>
@@ -2288,17 +2512,14 @@ function CustomerLedger({ setPage, goBack }) {
 
               <div
                 style={{
-                  display: "flex",
+                  display:
+                    "flex",
                   justifyContent:
                     "space-between",
-                  borderBottom:
-                    "1px solid #eee",
-                  paddingBottom:
-                    "8px",
                 }}
               >
                 <span>
-                  Udhari
+                  Bill की Udhari
                 </span>
 
                 <strong
@@ -2315,13 +2536,10 @@ function CustomerLedger({ setPage, goBack }) {
 
               <div
                 style={{
-                  display: "flex",
+                  display:
+                    "flex",
                   justifyContent:
                     "space-between",
-                  borderBottom:
-                    "1px solid #eee",
-                  paddingBottom:
-                    "8px",
                 }}
               >
                 <span>
@@ -2342,10 +2560,44 @@ function CustomerLedger({ setPage, goBack }) {
 
               <div
                 style={{
-                  display: "flex",
+                  display:
+                    "flex",
                   justifyContent:
                     "space-between",
-                    paddingTop: "5px",
+                }}
+              >
+                <span>
+                  Advance Adjusted
+                </span>
+
+                <strong
+                  style={{
+                    color:
+                      "#1565c0",
+                  }}
+                >
+                  {money(
+                    customerCalculation.totalAdvanceAdjusted
+                  )}
+                </strong>
+              </div>
+
+              <hr
+                style={{
+                  width:
+                    "100%",
+                  border: 0,
+                  borderTop:
+                    "1px solid #ddd",
+                }}
+              />
+
+              <div
+                style={{
+                  display:
+                    "flex",
+                  justifyContent:
+                    "space-between",
                 }}
               >
                 <strong>
@@ -2372,22 +2624,46 @@ function CustomerLedger({ setPage, goBack }) {
 
             <div
               style={{
-                marginTop: "15px",
-                padding: "10px",
-                borderRadius: "7px",
+                marginTop:
+                  "15px",
+                padding:
+                  "10px",
+                borderRadius:
+                  "7px",
                 background:
                   "#fff8e1",
-                color: "#795548",
-                fontSize: "13px",
+                color:
+                  "#795548",
+                fontSize:
+                  "13px",
               }}
             >
               <strong>
-                Rule:
-              </strong>{" "}
-              Bill में मिला payment,
-              बाद में किया गया customer
-              payment और advance adjustment
-              अलग-अलग calculate किए जाते हैं।
+                Calculation Rule:
+              </strong>
+
+              <br />
+
+              Bill Udhari = Total Bill − Bill
+              में Paid − Advance Adjust
+
+              <br />
+
+              Final Balance = सभी Bill Udhari −
+              बाद में मिला Customer Payment
+
+              <br />
+
+              <strong>
+                🔄 Latest Entry सबसे ऊपर
+              </strong>
+
+              <br />
+
+              <strong>
+                🔄 Online data हर 5 सेकंड में
+                automatically update होता है।
+              </strong>
             </div>
           </div>
         </>
