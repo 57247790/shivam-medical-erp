@@ -1,4 +1,3 @@
-
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
@@ -212,7 +211,7 @@ function getCustomerMobileFromBill(bill) {
     }
   }
 
-  // customer string/object
+  // customer object
   if (
     bill.customer &&
     typeof bill.customer === "object"
@@ -290,7 +289,6 @@ function parseBill(row) {
   return {
     ...row,
 
-    // CUSTOMER DATA — IMPORTANT
     customer: customerName,
     customerName: customerName,
     customerMobile: customerMobile,
@@ -356,6 +354,51 @@ function parseBill(row) {
 }
 
 // =========================================================
+// CUSTOMER PAYMENTS TABLE
+// =========================================================
+
+async function initCustomerPaymentsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS customer_payments (
+      id TEXT PRIMARY KEY,
+
+      customer TEXT,
+      "customerName" TEXT,
+      name TEXT,
+
+      mobile TEXT,
+      phone TEXT,
+      "customerMobile" TEXT,
+
+      amount NUMERIC DEFAULT 0,
+      "paidAmount" NUMERIC DEFAULT 0,
+      payment NUMERIC DEFAULT 0,
+
+      mode TEXT,
+      "paymentMode" TEXT,
+
+      note TEXT,
+
+      date TEXT,
+      time TEXT,
+
+      "adjustedToUdhari" NUMERIC DEFAULT 0,
+      "isAdvance" BOOLEAN DEFAULT FALSE,
+      "advanceAmount" NUMERIC DEFAULT 0,
+      "adjustedToAdvance" NUMERIC DEFAULT 0,
+
+      allocations JSONB DEFAULT '[]'::jsonb,
+
+      "createdAt" TEXT
+    )
+  `);
+
+  console.log(
+    "✅ CUSTOMER PAYMENTS table ready"
+  );
+}
+
+// =========================================================
 // HEALTH
 // =========================================================
 
@@ -385,7 +428,10 @@ app.get("/api/test", async (req, res) => {
           : "Error",
     });
   } catch (error) {
-    console.error("API TEST ERROR:", error);
+    console.error(
+      "API TEST ERROR:",
+      error
+    );
 
     res.status(500).json({
       success: false,
@@ -435,28 +481,31 @@ app.get(
 // STOCK - GET ALL
 // =========================================================
 
-app.get("/api/stock", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT *
-      FROM stock
-      ORDER BY id DESC
-    `);
+app.get(
+  "/api/stock",
+  async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT *
+        FROM stock
+        ORDER BY id DESC
+      `);
 
-    res.json(result.rows);
-  } catch (error) {
-    console.error(
-      "GET STOCK ERROR:",
-      error
-    );
+      res.json(result.rows);
+    } catch (error) {
+      console.error(
+        "GET STOCK ERROR:",
+        error
+      );
 
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch stock",
-      error: error.message,
-    });
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch stock",
+        error: error.message,
+      });
+    }
   }
-});
+);
 
 // =========================================================
 // STOCK - GET ONE
@@ -466,7 +515,9 @@ app.get(
   "/api/stock/:id",
   async (req, res) => {
     try {
-      const id = Number(req.params.id);
+      const id = Number(
+        req.params.id
+      );
 
       if (!Number.isInteger(id)) {
         return res.status(400).json({
@@ -484,14 +535,18 @@ app.get(
         [id]
       );
 
-      if (result.rows.length === 0) {
+      if (
+        result.rows.length === 0
+      ) {
         return res.status(404).json({
           success: false,
           message: "Stock item not found",
         });
       }
 
-      res.json(result.rows[0]);
+      res.json(
+        result.rows[0]
+      );
     } catch (error) {
       console.error(
         "GET STOCK BY ID ERROR:",
@@ -500,7 +555,8 @@ app.get(
 
       res.status(500).json({
         success: false,
-        message: "Failed to fetch stock item",
+        message:
+          "Failed to fetch stock item",
         error: error.message,
       });
     }
@@ -511,86 +567,121 @@ app.get(
 // STOCK - POST
 // =========================================================
 
-app.post("/api/stock", async (req, res) => {
-  try {
-    const item = req.body || {};
+app.post(
+  "/api/stock",
+  async (req, res) => {
+    try {
+      const item = req.body || {};
 
-    const result = await pool.query(
-      `
-      INSERT INTO stock (
-        medicine,
-        company,
-        batch,
-        barcode,
-        supplier,
-        "supplierMobile",
-        quantity,
-        rate,
-        mrp,
-        "saleRate",
-        expiry,
-        "gstType",
-        "gstPercent",
-        "purchaseRateWithGST",
-        "purchaseAmount",
-        "createdAt",
-        "updatedAt"
-      )
-      VALUES (
-        $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11, $12,
-        $13, $14, $15, $16, $17
-      )
-      RETURNING *
-      `,
-      [
-        safeText(item.medicine),
-        safeText(item.company),
-        safeText(item.batch),
-        safeText(item.barcode),
-        safeText(item.supplier),
-        safeText(item.supplierMobile),
+      const result =
+        await pool.query(
+          `
+          INSERT INTO stock (
+            medicine,
+            company,
+            batch,
+            barcode,
+            supplier,
+            "supplierMobile",
+            quantity,
+            rate,
+            mrp,
+            "saleRate",
+            expiry,
+            "gstType",
+            "gstPercent",
+            "purchaseRateWithGST",
+            "purchaseAmount",
+            "createdAt",
+            "updatedAt"
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10, $11, $12,
+            $13, $14, $15, $16, $17
+          )
+          RETURNING *
+          `,
+          [
+            safeText(
+              item.medicine
+            ),
+            safeText(
+              item.company
+            ),
+            safeText(
+              item.batch
+            ),
+            safeText(
+              item.barcode
+            ),
+            safeText(
+              item.supplier
+            ),
+            safeText(
+              item.supplierMobile
+            ),
 
-        safeNumber(item.quantity),
-        safeNumber(item.rate),
-        safeNumber(item.mrp),
-        safeNumber(item.saleRate),
+            safeNumber(
+              item.quantity
+            ),
+            safeNumber(
+              item.rate
+            ),
+            safeNumber(
+              item.mrp
+            ),
+            safeNumber(
+              item.saleRate
+            ),
 
-        safeText(item.expiry),
+            safeText(
+              item.expiry
+            ),
 
-        safeText(item.gstType),
-        safeNumber(item.gstPercent),
-        safeNumber(
-          item.purchaseRateWithGST
-        ),
-        safeNumber(item.purchaseAmount),
+            safeText(
+              item.gstType
+            ),
+            safeNumber(
+              item.gstPercent
+            ),
+            safeNumber(
+              item.purchaseRateWithGST
+            ),
+            safeNumber(
+              item.purchaseAmount
+            ),
 
-        item.createdAt ||
-          new Date().toISOString(),
+            item.createdAt ||
+              new Date().toISOString(),
 
-        item.updatedAt ||
-          new Date().toISOString(),
-      ]
-    );
+            item.updatedAt ||
+              new Date().toISOString(),
+          ]
+        );
 
-    res.status(201).json({
-      success: true,
-      message: "Stock saved successfully",
-      item: result.rows[0],
-    });
-  } catch (error) {
-    console.error(
-      "POST STOCK ERROR:",
-      error
-    );
+      res.status(201).json({
+        success: true,
+        message:
+          "Stock saved successfully",
+        item:
+          result.rows[0],
+      });
+    } catch (error) {
+      console.error(
+        "POST STOCK ERROR:",
+        error
+      );
 
-    res.status(500).json({
-      success: false,
-      message: "Failed to save stock",
-      error: error.message,
-    });
+      res.status(500).json({
+        success: false,
+        message:
+          "Failed to save stock",
+        error: error.message,
+      });
+    }
   }
-});
+);
 
 // =========================================================
 // STOCK - PUT
@@ -603,26 +694,37 @@ app.put(
       console.log(
         "=========================================="
       );
-      console.log("🔥 STOCK PUT HIT");
+
+      console.log(
+        "🔥 STOCK PUT HIT"
+      );
+
       console.log(
         "Stock ID:",
         req.params.id
       );
+
       console.log(
         "Request Body:",
         req.body
       );
+
       console.log(
         "=========================================="
       );
 
-      const id = Number(req.params.id);
-      const item = req.body || {};
+      const id = Number(
+        req.params.id
+      );
+
+      const item =
+        req.body || {};
 
       if (!Number.isInteger(id)) {
         return res.status(400).json({
           success: false,
-          message: "Invalid stock ID",
+          message:
+            "Invalid stock ID",
         });
       }
 
@@ -636,7 +738,9 @@ app.put(
           [id]
         );
 
-      if (existing.rows.length === 0) {
+      if (
+        existing.rows.length === 0
+      ) {
         return res.status(404).json({
           success: false,
           message:
@@ -644,19 +748,26 @@ app.put(
         });
       }
 
-      const old = existing.rows[0];
+      const old =
+        existing.rows[0];
 
       const newQuantity =
         item.quantity !== undefined
-          ? safeNumber(item.quantity)
-          : safeNumber(old.quantity);
+          ? safeNumber(
+              item.quantity
+            )
+          : safeNumber(
+              old.quantity
+            );
 
       console.log(
         "📦 OLD STOCK:",
         {
           id: old.id,
-          medicine: old.medicine,
-          quantity: old.quantity,
+          medicine:
+            old.medicine,
+          quantity:
+            old.quantity,
         }
       );
 
@@ -696,24 +807,39 @@ app.put(
           RETURNING *
           `,
           [
-            item.medicine !== undefined
-              ? safeText(item.medicine)
+            item.medicine !==
+            undefined
+              ? safeText(
+                  item.medicine
+                )
               : old.medicine,
 
-            item.company !== undefined
-              ? safeText(item.company)
+            item.company !==
+            undefined
+              ? safeText(
+                  item.company
+                )
               : old.company,
 
-            item.batch !== undefined
-              ? safeText(item.batch)
+            item.batch !==
+            undefined
+              ? safeText(
+                  item.batch
+                )
               : old.batch,
 
-            item.barcode !== undefined
-              ? safeText(item.barcode)
+            item.barcode !==
+            undefined
+              ? safeText(
+                  item.barcode
+                )
               : old.barcode,
 
-            item.supplier !== undefined
-              ? safeText(item.supplier)
+            item.supplier !==
+            undefined
+              ? safeText(
+                  item.supplier
+                )
               : old.supplier,
 
             item.supplierMobile !==
@@ -725,27 +851,49 @@ app.put(
 
             newQuantity,
 
-            item.rate !== undefined
-              ? safeNumber(item.rate)
-              : safeNumber(old.rate),
+            item.rate !==
+            undefined
+              ? safeNumber(
+                  item.rate
+                )
+              : safeNumber(
+                  old.rate
+                ),
 
-            item.mrp !== undefined
-              ? safeNumber(item.mrp)
-              : safeNumber(old.mrp),
+            item.mrp !==
+            undefined
+              ? safeNumber(
+                  item.mrp
+                )
+              : safeNumber(
+                  old.mrp
+                ),
 
-            item.saleRate !== undefined
-              ? safeNumber(item.saleRate)
-              : safeNumber(old.saleRate),
+            item.saleRate !==
+            undefined
+              ? safeNumber(
+                  item.saleRate
+                )
+              : safeNumber(
+                  old.saleRate
+                ),
 
-            item.expiry !== undefined
-              ? safeText(item.expiry)
+            item.expiry !==
+            undefined
+              ? safeText(
+                  item.expiry
+                )
               : old.expiry,
 
-            item.gstType !== undefined
-              ? safeText(item.gstType)
+            item.gstType !==
+            undefined
+              ? safeText(
+                  item.gstType
+                )
               : old.gstType,
 
-            item.gstPercent !== undefined
+            item.gstPercent !==
+            undefined
               ? safeNumber(
                   item.gstPercent
                 )
@@ -771,7 +919,8 @@ app.put(
                   old.purchaseAmount
                 ),
 
-            item.createdAt !== undefined
+            item.createdAt !==
+            undefined
               ? item.createdAt
               : old.createdAt,
 
@@ -782,7 +931,8 @@ app.put(
           ]
         );
 
-      const updated = result.rows[0];
+      const updated =
+        result.rows[0];
 
       console.log(
         "=========================================="
@@ -846,12 +996,15 @@ app.delete(
   "/api/stock/:id",
   async (req, res) => {
     try {
-      const id = Number(req.params.id);
+      const id = Number(
+        req.params.id
+      );
 
       if (!Number.isInteger(id)) {
         return res.status(400).json({
           success: false,
-          message: "Invalid stock ID",
+          message:
+            "Invalid stock ID",
         });
       }
 
@@ -865,7 +1018,9 @@ app.delete(
           [id]
         );
 
-      if (result.rows.length === 0) {
+      if (
+        result.rows.length === 0
+      ) {
         return res.status(404).json({
           success: false,
           message:
@@ -877,7 +1032,8 @@ app.delete(
         success: true,
         message:
           "Stock deleted successfully",
-        item: result.rows[0],
+        item:
+          result.rows[0],
       });
     } catch (error) {
       console.error(
@@ -889,6 +1045,598 @@ app.delete(
         success: false,
         message:
           "Failed to delete stock",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// =========================================================
+// CUSTOMER PAYMENTS - GET ALL
+// =========================================================
+
+app.get(
+  "/api/customer-payments",
+  async (req, res) => {
+    try {
+      const result =
+        await pool.query(`
+          SELECT *
+          FROM customer_payments
+          ORDER BY "createdAt" DESC
+        `);
+
+      const payments =
+        result.rows.map(
+          (row) => ({
+            ...row,
+
+            amount: Number(
+              row.amount || 0
+            ),
+
+            paidAmount: Number(
+              row.paidAmount || 0
+            ),
+
+            payment: Number(
+              row.payment || 0
+            ),
+
+            adjustedToUdhari:
+              Number(
+                row.adjustedToUdhari ||
+                  0
+              ),
+
+            advanceAmount:
+              Number(
+                row.advanceAmount ||
+                  0
+              ),
+
+            adjustedToAdvance:
+              Number(
+                row.adjustedToAdvance ||
+                  0
+              ),
+
+            isAdvance:
+              Boolean(
+                row.isAdvance
+              ),
+
+            allocations:
+              Array.isArray(
+                row.allocations
+              )
+                ? row.allocations
+                : [],
+          })
+        );
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "💰 GET /api/customer-payments"
+      );
+
+      console.log(
+        "TOTAL CUSTOMER PAYMENTS:",
+        payments.length
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+      res.json({
+        success: true,
+        count:
+          payments.length,
+        payments,
+      });
+    } catch (error) {
+      console.error(
+        "GET CUSTOMER PAYMENTS ERROR:",
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        message:
+          "Failed to fetch customer payments",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// =========================================================
+// CUSTOMER PAYMENTS - POST
+// =========================================================
+
+app.post(
+  "/api/customer-payments",
+  async (req, res) => {
+    try {
+      const payment =
+        req.body || {};
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "🔥 CUSTOMER PAYMENT POST HIT"
+      );
+
+      console.log(
+        "Payment ID:",
+        payment.id
+      );
+
+      console.log(
+        "Customer:",
+        payment.customer ||
+          payment.customerName ||
+          payment.name
+      );
+
+      console.log(
+        "Amount:",
+        payment.amount ||
+          payment.paidAmount ||
+          payment.payment
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+      const id =
+        safeText(
+          payment.id
+        );
+
+      const customer =
+        safeText(
+          payment.customer ||
+            payment.customerName ||
+            payment.name
+        );
+
+      const amount =
+        safeNumber(
+          payment.amount ??
+            payment.paidAmount ??
+            payment.payment
+        );
+
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Payment id is required",
+        });
+      }
+
+      if (!customer) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Customer name is required",
+        });
+      }
+
+      if (amount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Payment amount must be greater than 0",
+        });
+      }
+
+      const result =
+        await pool.query(
+          `
+          INSERT INTO customer_payments (
+            id,
+            customer,
+            "customerName",
+            name,
+
+            mobile,
+            phone,
+            "customerMobile",
+
+            amount,
+            "paidAmount",
+            payment,
+
+            mode,
+            "paymentMode",
+
+            note,
+
+            date,
+            time,
+
+            "adjustedToUdhari",
+            "isAdvance",
+            "advanceAmount",
+            "adjustedToAdvance",
+
+            allocations,
+
+            "createdAt"
+          )
+          VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+
+            $5,
+            $6,
+            $7,
+
+            $8,
+            $9,
+            $10,
+
+            $11,
+            $12,
+
+            $13,
+
+            $14,
+            $15,
+
+            $16,
+            $17,
+            $18,
+            $19,
+
+            $20,
+
+            $21
+          )
+
+          ON CONFLICT (id)
+          DO UPDATE SET
+
+            customer =
+              EXCLUDED.customer,
+
+            "customerName" =
+              EXCLUDED."customerName",
+
+            name =
+              EXCLUDED.name,
+
+            mobile =
+              EXCLUDED.mobile,
+
+            phone =
+              EXCLUDED.phone,
+
+            "customerMobile" =
+              EXCLUDED."customerMobile",
+
+            amount =
+              EXCLUDED.amount,
+
+            "paidAmount" =
+              EXCLUDED."paidAmount",
+
+            payment =
+              EXCLUDED.payment,
+
+            mode =
+              EXCLUDED.mode,
+
+            "paymentMode" =
+              EXCLUDED."paymentMode",
+
+            note =
+              EXCLUDED.note,
+
+            date =
+              EXCLUDED.date,
+
+            time =
+              EXCLUDED.time,
+
+            "adjustedToUdhari" =
+              EXCLUDED."adjustedToUdhari",
+
+            "isAdvance" =
+              EXCLUDED."isAdvance",
+
+            "advanceAmount" =
+              EXCLUDED."advanceAmount",
+
+            "adjustedToAdvance" =
+              EXCLUDED."adjustedToAdvance",
+
+            allocations =
+              EXCLUDED.allocations,
+
+            "createdAt" =
+              EXCLUDED."createdAt"
+
+          RETURNING *
+          `,
+          [
+            // 1
+            id,
+
+            // 2-4 CUSTOMER
+            customer,
+
+            safeText(
+              payment.customerName ||
+                customer
+            ),
+
+            safeText(
+              payment.name ||
+                customer
+            ),
+
+            // 5-7 MOBILE
+            safeText(
+              payment.mobile
+            ),
+
+            safeText(
+              payment.phone
+            ),
+
+            safeText(
+              payment.customerMobile
+            ),
+
+            // 8-10 AMOUNT
+            safeNumber(
+              payment.amount
+            ),
+
+            safeNumber(
+              payment.paidAmount
+            ),
+
+            safeNumber(
+              payment.payment
+            ),
+
+            // 11-12 MODE
+            safeText(
+              payment.mode
+            ),
+
+            safeText(
+              payment.paymentMode
+            ),
+
+            // 13 NOTE
+            safeText(
+              payment.note
+            ),
+
+            // 14-15 DATE/TIME
+            safeText(
+              payment.date
+            ),
+
+            safeText(
+              payment.time
+            ),
+
+            // 16-19 PAYMENT BREAKUP
+            safeNumber(
+              payment.adjustedToUdhari
+            ),
+
+            Boolean(
+              payment.isAdvance
+            ),
+
+            safeNumber(
+              payment.advanceAmount
+            ),
+
+            safeNumber(
+              payment.adjustedToAdvance
+            ),
+
+            // 20 ALLOCATIONS
+            JSON.stringify(
+              Array.isArray(
+                payment.allocations
+              )
+                ? payment.allocations
+                : []
+            ),
+
+            // 21 CREATED AT
+            safeText(
+              payment.createdAt
+            ) ||
+              new Date().toISOString(),
+          ]
+        );
+
+      const row =
+        result.rows[0];
+
+      const savedPayment = {
+        ...row,
+
+        amount: Number(
+          row.amount || 0
+        ),
+
+        paidAmount: Number(
+          row.paidAmount || 0
+        ),
+
+        payment: Number(
+          row.payment || 0
+        ),
+
+        adjustedToUdhari:
+          Number(
+            row.adjustedToUdhari ||
+              0
+          ),
+
+        advanceAmount:
+          Number(
+            row.advanceAmount ||
+              0
+          ),
+
+        adjustedToAdvance:
+          Number(
+            row.adjustedToAdvance ||
+              0
+          ),
+
+        isAdvance:
+          Boolean(
+            row.isAdvance
+          ),
+
+        allocations:
+          Array.isArray(
+            row.allocations
+          )
+            ? row.allocations
+            : [],
+      };
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "✅ CUSTOMER PAYMENT SAVED ONLINE"
+      );
+
+      console.log(
+        "Payment ID:",
+        savedPayment.id
+      );
+
+      console.log(
+        "Customer:",
+        savedPayment.customer
+      );
+
+      console.log(
+        "Amount:",
+        savedPayment.amount
+      );
+
+      console.log(
+        "Udhari Adjust:",
+        savedPayment.adjustedToUdhari
+      );
+
+      console.log(
+        "Advance:",
+        savedPayment.advanceAmount
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+      res.status(201).json({
+        success: true,
+        message:
+          "Customer payment saved successfully",
+        payment:
+          savedPayment,
+      });
+    } catch (error) {
+      console.error(
+        "=========================================="
+      );
+
+      console.error(
+        "❌ POST CUSTOMER PAYMENT ERROR"
+      );
+
+      console.error(
+        error
+      );
+
+      console.error(
+        "=========================================="
+      );
+
+      res.status(500).json({
+        success: false,
+        message:
+          "Failed to save customer payment",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// =========================================================
+// CUSTOMER PAYMENTS - DELETE
+// =========================================================
+
+app.delete(
+  "/api/customer-payments/:id",
+  async (req, res) => {
+    try {
+      const id =
+        safeText(
+          req.params.id
+        );
+
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Payment ID is required",
+        });
+      }
+
+      const result =
+        await pool.query(
+          `
+          DELETE FROM customer_payments
+          WHERE id = $1
+          RETURNING id
+          `,
+          [id]
+        );
+
+      res.json({
+        success: true,
+        deleted:
+          result.rowCount > 0,
+        id,
+      });
+    } catch (error) {
+      console.error(
+        "DELETE CUSTOMER PAYMENT ERROR:",
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        message:
+          "Failed to delete customer payment",
         error: error.message,
       });
     }
@@ -928,7 +1676,9 @@ app.get(
         bills.length
       );
 
-      if (bills.length > 0) {
+      if (
+        bills.length > 0
+      ) {
         console.log(
           "LATEST BILL CUSTOMER:",
           bills[0].customer
@@ -949,7 +1699,9 @@ app.get(
         "=========================================="
       );
 
-      res.json(bills);
+      res.json(
+        bills
+      );
     } catch (error) {
       console.error(
         "GET BILLS ERROR:",
@@ -974,7 +1726,8 @@ app.get(
   "/api/bills/:id",
   async (req, res) => {
     try {
-      const id = req.params.id;
+      const id =
+        req.params.id;
 
       const result =
         await pool.query(
@@ -986,10 +1739,13 @@ app.get(
           [id]
         );
 
-      if (result.rows.length === 0) {
+      if (
+        result.rows.length === 0
+      ) {
         return res.status(404).json({
           success: false,
-          message: "Bill not found",
+          message:
+            "Bill not found",
         });
       }
 
@@ -1022,7 +1778,8 @@ app.post(
   "/api/bills",
   async (req, res) => {
     try {
-      const bill = req.body || {};
+      const bill =
+        req.body || {};
 
       console.log(
         "=========================================="
@@ -1112,7 +1869,11 @@ app.post(
           FROM bills
           WHERE id = $1
           `,
-          [String(bill.id)]
+          [
+            String(
+              bill.id
+            ),
+          ]
         );
 
       if (
@@ -1129,11 +1890,12 @@ app.post(
       // ITEMS
       // =====================================================
 
-      const items = Array.isArray(
-        bill.items
-      )
-        ? bill.items
-        : [];
+      const items =
+        Array.isArray(
+          bill.items
+        )
+          ? bill.items
+          : [];
 
       // =====================================================
       // INSERT BILL
@@ -1239,7 +2001,10 @@ app.post(
           `,
           [
             // 1-2
-            String(bill.id),
+            String(
+              bill.id
+            ),
+
             safeText(
               bill.billNo
             ),
@@ -1251,12 +2016,15 @@ app.post(
             customerMobile,
 
             // 7 ITEMS
-            JSON.stringify(items),
+            JSON.stringify(
+              items
+            ),
 
             // 8-9
             safeNumber(
               bill.totalItems
             ),
+
             safeNumber(
               bill.totalQuantity
             ),
@@ -1265,6 +2033,7 @@ app.post(
             safeNumber(
               bill.discountPercent
             ),
+
             safeNumber(
               bill.discountAmount
             ),
@@ -1273,12 +2042,15 @@ app.post(
             safeNumber(
               bill.subtotal
             ),
+
             safeNumber(
               bill.billTotal
             ),
+
             safeNumber(
               bill.total
             ),
+
             safeNumber(
               bill.totalAmount
             ),
@@ -1287,12 +2059,15 @@ app.post(
             safeNumber(
               bill.previousAdvance
             ),
+
             safeNumber(
               bill.advanceAdjusted
             ),
+
             safeNumber(
               bill.advanceUsed
             ),
+
             safeNumber(
               bill.billAfterAdvance
             ),
@@ -1301,6 +2076,7 @@ app.post(
             safeNumber(
               bill.paymentReceived
             ),
+
             safeNumber(
               bill.receivedAmount
             ),
@@ -1309,6 +2085,7 @@ app.post(
             safeNumber(
               bill.billPaid
             ),
+
             safeNumber(
               bill.paidNow
             ),
@@ -1317,9 +2094,11 @@ app.post(
             safeNumber(
               bill.jama
             ),
+
             safeNumber(
               bill.paid
             ),
+
             safeNumber(
               bill.paidAmount
             ),
@@ -1328,6 +2107,7 @@ app.post(
             safeNumber(
               bill.paidAtBill
             ),
+
             safeNumber(
               bill.receivedAtBill
             ),
@@ -1336,9 +2116,11 @@ app.post(
             safeNumber(
               bill.bakiUdhari
             ),
+
             safeNumber(
               bill.pendingAmount
             ),
+
             safeNumber(
               bill.creditAmount
             ),
@@ -1352,12 +2134,15 @@ app.post(
             safeNumber(
               bill.advance
             ),
+
             safeNumber(
               bill.advanceAdded
             ),
+
             safeNumber(
               bill.advanceBalance
             ),
+
             safeNumber(
               bill.remainingAdvance
             ),
@@ -1371,6 +2156,7 @@ app.post(
             safeText(
               bill.date
             ),
+
             safeText(
               bill.billDate
             ),
@@ -1430,7 +2216,8 @@ app.post(
         success: true,
         message:
           "Bill saved successfully",
-        bill: savedBill,
+        bill:
+          savedBill,
       });
     } catch (error) {
       console.error(
@@ -1467,7 +2254,8 @@ app.delete(
   "/api/bills/:id",
   async (req, res) => {
     try {
-      const id = req.params.id;
+      const id =
+        req.params.id;
 
       const result =
         await pool.query(
@@ -1479,7 +2267,9 @@ app.delete(
           [id]
         );
 
-      if (result.rows.length === 0) {
+      if (
+        result.rows.length === 0
+      ) {
         return res.status(404).json({
           success: false,
           message:
@@ -1491,9 +2281,10 @@ app.delete(
         success: true,
         message:
           "Bill deleted successfully",
-        bill: parseBill(
-          result.rows[0]
-        ),
+        bill:
+          parseBill(
+            result.rows[0]
+          ),
       });
     } catch (error) {
       console.error(
@@ -1538,10 +2329,15 @@ app.post(
         file: {
           originalName:
             req.file.originalname,
+
           filename:
             req.file.filename,
-          size: req.file.size,
-          url: fileUrl,
+
+          size:
+            req.file.size,
+
+          url:
+            fileUrl,
         },
       });
     } catch (error) {
@@ -1566,21 +2362,26 @@ app.post(
 
 app.use(
   "/uploads",
-  express.static(uploadDir)
+  express.static(
+    uploadDir
+  )
 );
 
 // =========================================================
 // 404
 // =========================================================
 
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message:
-      "API route not found",
-    path: req.originalUrl,
-  });
-});
+app.use(
+  (req, res) => {
+    res.status(404).json({
+      success: false,
+      message:
+        "API route not found",
+      path:
+        req.originalUrl,
+    });
+  }
+);
 
 // =========================================================
 // ERROR HANDLER
@@ -1615,6 +2416,12 @@ app.use(
 async function startServer() {
   try {
     await initDatabase();
+
+    // =====================================================
+    // CUSTOMER PAYMENTS TABLE
+    // =====================================================
+
+    await initCustomerPaymentsTable();
 
     await pool.query(
       "SELECT 1"

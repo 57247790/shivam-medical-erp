@@ -1,115 +1,540 @@
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
-import React, { useEffect, useMemo, useState } from "react";
+const API_URL =
+  process.env.REACT_APP_API_URL ||
+  "https://shivam-medical-erp.onrender.com";
 
-function CustomerPayment({ setPage, goBack }) {
-  const [customer, setCustomer] = useState("");
-  const [mobile, setMobile] = useState("");
+function CustomerPayment({
+  setPage,
+  goBack,
+}) {
+  const [customer, setCustomer] =
+    useState("");
 
-  const [amount, setAmount] = useState("");
-  const [mode, setMode] = useState("Cash");
-  const [note, setNote] = useState("");
+  const [mobile, setMobile] =
+    useState("");
 
-  const [refresh, setRefresh] = useState(0);
+  const [amount, setAmount] =
+    useState("");
+
+  const [mode, setMode] =
+    useState("Cash");
+
+  const [note, setNote] =
+    useState("");
+
+  const [refresh, setRefresh] =
+    useState(0);
+
+  const [saving, setSaving] =
+    useState(false);
 
   // =====================================================
-  // SAFE LOAD
+  // HELPERS
   // =====================================================
 
   const loadArray = (key) => {
     try {
       const data = JSON.parse(
-        localStorage.getItem(key) || "[]"
+        localStorage.getItem(key) ||
+          "[]"
       );
 
-      return Array.isArray(data) ? data : [];
-    } catch (error) {
-      console.error(`Error loading ${key}:`, error);
+      return Array.isArray(data)
+        ? data
+        : [];
+    } catch {
       return [];
     }
   };
 
-  // =====================================================
-  // SAFE SAVE
-  // =====================================================
-
-  const saveArray = (key, data) => {
-    try {
-      localStorage.setItem(
-        key,
-        JSON.stringify(
-          Array.isArray(data) ? data : []
-        )
-      );
-    } catch (error) {
-      console.error(`Error saving ${key}:`, error);
-    }
+  const saveArray = (
+    key,
+    data
+  ) => {
+    localStorage.setItem(
+      key,
+      JSON.stringify(data)
+    );
   };
 
-  // =====================================================
-  // ROUND MONEY
-  // =====================================================
-
   const roundMoney = (value) => {
-    const number = Number(value || 0);
+    const n = Number(value);
 
-    if (!Number.isFinite(number)) {
+    if (!Number.isFinite(n)) {
       return 0;
     }
 
-    return Number(number.toFixed(2));
+    return Math.round(
+      (n + Number.EPSILON) * 100
+    ) / 100;
+  };
+
+  const money = (value) =>
+    `₹${roundMoney(value).toFixed(
+      2
+    )}`;
+
+  const normalizeMobile = (
+    value
+  ) => {
+    return String(value ?? "")
+      .replace(/\D/g, "")
+      .slice(-10);
+  };
+
+  const normalizeName = (
+    value
+  ) => {
+    return String(value ?? "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
   };
 
   // =====================================================
-  // MONEY
+  // CUSTOMER NAME
   // =====================================================
 
-  const money = (value) => {
-    return `₹${roundMoney(value).toFixed(2)}`;
+  const getCustomerName = (
+    item
+  ) => {
+    if (!item) {
+      return "";
+    }
+
+    const values = [
+      item.customerName,
+      item.name,
+      item.customer,
+      item.partyName,
+      item.clientName,
+    ];
+
+    for (const value of values) {
+      if (
+        typeof value ===
+          "string" &&
+        value.trim()
+      ) {
+        return value.trim();
+      }
+    }
+
+    return "";
   };
 
   // =====================================================
-  // LOAD SELECTED CUSTOMER
+  // CUSTOMER MOBILE
+  // =====================================================
+
+  const getCustomerMobile = (
+    item
+  ) => {
+    if (!item) {
+      return "";
+    }
+
+    const values = [
+      item.customerMobile,
+      item.mobile,
+      item.phone,
+      item.customerPhone,
+      item.partyMobile,
+    ];
+
+    for (const value of values) {
+      if (
+        value !== undefined &&
+        value !== null &&
+        String(value).trim()
+      ) {
+        return String(value).trim();
+      }
+    }
+
+    return "";
+  };
+
+  // =====================================================
+  // SAME CUSTOMER
+  // =====================================================
+
+  const isSameCustomer = (
+    item,
+    name,
+    mobileNo
+  ) => {
+    if (!item) {
+      return false;
+    }
+
+    const itemName =
+      normalizeName(
+        getCustomerName(item)
+      );
+
+    const itemMobile =
+      normalizeMobile(
+        getCustomerMobile(item)
+      );
+
+    const customerName =
+      normalizeName(name);
+
+    const customerMobile =
+      normalizeMobile(
+        mobileNo
+      );
+
+    if (
+      customerMobile &&
+      itemMobile &&
+      customerMobile ===
+        itemMobile
+    ) {
+      return true;
+    }
+
+    if (
+      customerName &&
+      itemName &&
+      customerName ===
+        itemName
+    ) {
+      return true;
+    }
+
+    return false;
+  };
+
+  // =====================================================
+  // BILL TOTAL
+  // =====================================================
+
+  const getBillTotal = (
+    bill
+  ) => {
+    if (!bill) {
+      return 0;
+    }
+
+    const fields = [
+      "grandTotal",
+      "totalAmount",
+      "billTotal",
+      "netTotal",
+      "finalTotal",
+      "payableAmount",
+      "netAmount",
+      "total",
+    ];
+
+    for (const field of fields) {
+      const value = Number(
+        bill[field]
+      );
+
+      if (
+        Number.isFinite(value) &&
+        value > 0
+      ) {
+        return roundMoney(value);
+      }
+    }
+
+    const items =
+      bill.items ||
+      bill.billItems ||
+      bill.products ||
+      [];
+
+    if (
+      Array.isArray(items)
+    ) {
+      let total = 0;
+
+      items.forEach(
+        (item) => {
+          const qty = Number(
+            item.quantity ??
+              item.qty ??
+              item.saleQty ??
+              0
+          );
+
+          const rate = Number(
+            item.saleRate ??
+              item.sellingRate ??
+              item.rate ??
+              item.price ??
+              item.mrp ??
+              0
+          );
+
+          if (
+            qty > 0 &&
+            rate > 0
+          ) {
+            total +=
+              qty * rate;
+          }
+        }
+      );
+
+      return roundMoney(total);
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // BILL PAYMENT
+  // =====================================================
+
+  const getBillPaid = (
+    bill
+  ) => {
+    if (!bill) {
+      return 0;
+    }
+
+    const fields = [
+      "paidNow",
+      "billPaid",
+      "paidAtBill",
+      "paymentReceivedAtBill",
+    ];
+
+    for (const field of fields) {
+      if (
+        bill[field] !==
+          undefined &&
+        bill[field] !== null &&
+        bill[field] !== ""
+      ) {
+        const value = Number(
+          bill[field]
+        );
+
+        if (
+          Number.isFinite(value) &&
+          value > 0
+        ) {
+          return roundMoney(
+            value
+          );
+        }
+      }
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // ADVANCE ADJUSTMENT
+  // =====================================================
+
+  const getBillAdvanceAdjusted = (
+    bill
+  ) => {
+    if (!bill) {
+      return 0;
+    }
+
+    const fields = [
+      "advanceAdjusted",
+      "advanceAdjustment",
+      "adjustedAdvance",
+      "advanceUsed",
+      "advanceUsedAmount",
+      "advanceApplied",
+      "advanceAppliedAmount",
+    ];
+
+    for (const field of fields) {
+      const value = Number(
+        bill[field]
+      );
+
+      if (
+        Number.isFinite(value) &&
+        value > 0
+      ) {
+        return roundMoney(value);
+      }
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // BILL UDHARI
+  // =====================================================
+
+  const getBillUdhari = (
+    bill
+  ) => {
+    const total =
+      getBillTotal(bill);
+
+    const paid =
+      getBillPaid(bill);
+
+    const advanceAdjusted =
+      getBillAdvanceAdjusted(
+        bill
+      );
+
+    return roundMoney(
+      Math.max(
+        0,
+        total -
+          paid -
+          advanceAdjusted
+      )
+    );
+  };
+
+  // =====================================================
+  // PAYMENT AMOUNT
+  // =====================================================
+
+  const getPaymentAmount = (
+    payment
+  ) => {
+    if (!payment) {
+      return 0;
+    }
+
+    const fields = [
+      "amount",
+      "paidAmount",
+      "payment",
+    ];
+
+    for (const field of fields) {
+      const value = Number(
+        payment[field]
+      );
+
+      if (
+        Number.isFinite(value) &&
+        value > 0
+      ) {
+        return roundMoney(value);
+      }
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // PAYMENT UDHARI ADJUSTMENT
+  // =====================================================
+
+  const getPaymentAdjustment = (
+    payment
+  ) => {
+    if (!payment) {
+      return 0;
+    }
+
+    const fields = [
+      "adjustedToUdhari",
+      "udhariAdjustment",
+      "adjustedUdhari",
+      "creditAdjustment",
+      "adjustedCredit",
+    ];
+
+    for (const field of fields) {
+      const value = Number(
+        payment[field]
+      );
+
+      if (
+        Number.isFinite(value) &&
+        value > 0
+      ) {
+        return roundMoney(value);
+      }
+    }
+
+    return 0;
+  };
+
+  // =====================================================
+  // GET BILLS
+  // =====================================================
+
+  const bills = useMemo(
+    () =>
+      loadArray("bills"),
+    [refresh]
+  );
+
+  // =====================================================
+  // GET PAYMENTS
+  // =====================================================
+
+  const payments = useMemo(
+    () =>
+      loadArray(
+        "customerPayments"
+      ),
+    [refresh]
+  );
+
+  // =====================================================
+  // SELECTED CUSTOMER
   // =====================================================
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(
-        localStorage.getItem(
-          "selectedCustomerForPayment"
-        ) || "null"
-      );
+      const selected =
+        JSON.parse(
+          localStorage.getItem(
+            "selectedCustomerForPayment"
+          ) || "null"
+        );
 
-      if (saved) {
+      if (selected) {
         setCustomer(
-          saved.name ||
-            saved.customer ||
-            saved.customerName ||
+          selected.customer ||
+            selected.customerName ||
+            selected.name ||
             ""
         );
 
         setMobile(
-          saved.mobile ||
-            saved.phone ||
-            saved.customerMobile ||
+          selected.mobile ||
+            selected.customerMobile ||
+            selected.phone ||
             ""
         );
       }
-    } catch (error) {
-      console.error(
-        "Selected customer load error:",
-        error
-      );
+    } catch {
+      // ignore
     }
   }, []);
 
   // =====================================================
-  // REFRESH LISTENER
+  // EVENTS
   // =====================================================
 
   useEffect(() => {
-    const refreshData = () => {
-      setRefresh((value) => value + 1);
-    };
+    const refreshData =
+      () => {
+        setRefresh(
+          (value) =>
+            value + 1
+        );
+      };
 
     window.addEventListener(
       "customerPaymentUpdated",
@@ -165,1387 +590,466 @@ function CustomerPayment({ setPage, goBack }) {
   }, []);
 
   // =====================================================
-  // BILLS
-  // =====================================================
-
-  const bills = useMemo(() => {
-    return loadArray("bills");
-  }, [refresh]);
-
-  // =====================================================
-  // PAYMENTS
-  // =====================================================
-
-  const payments = useMemo(() => {
-    return loadArray("customerPayments");
-  }, [refresh]);
-
-  // =====================================================
-  // CUSTOMER NAME
-  // =====================================================
-
-  const getCustomerName = (item) => {
-    return String(
-      item?.customer ||
-        item?.customerName ||
-        item?.name ||
-        ""
-    ).trim();
-  };
-
-  // =====================================================
-  // CUSTOMER MOBILE
-  // =====================================================
-
-  const getCustomerMobile = (item) => {
-    return String(
-      item?.mobile ||
-        item?.phone ||
-        item?.customerMobile ||
-        ""
-    ).trim();
-  };
-
-  // =====================================================
-  // BILL DATE
-  // =====================================================
-
-  const getBillDateValue = (bill) => {
-    const value =
-      bill?.createdAt ||
-      bill?.dateTime ||
-      bill?.date ||
-      bill?.timestamp ||
-      "";
-
-    const parsed = new Date(value).getTime();
-
-    return Number.isFinite(parsed)
-      ? parsed
-      : 0;
-  };
-
-  // =====================================================
-  // BILL TOTAL
-  // =====================================================
-
-  const getBillTotal = (bill) => {
-    const possibleValues = [
-      bill?.total,
-      bill?.grandTotal,
-      bill?.totalAmount,
-      bill?.billTotal,
-      bill?.netTotal,
-      bill?.amount,
-    ];
-
-    for (const value of possibleValues) {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        const number = Number(value);
-
-        if (
-          Number.isFinite(number) &&
-          number >= 0
-        ) {
-          return roundMoney(number);
-        }
-      }
-    }
-
-    if (Array.isArray(bill?.items)) {
-      const total = bill.items.reduce(
-        (sum, item) => {
-          const quantity = Number(
-            item?.quantity ??
-              item?.qty ??
-              0
-          );
-
-          const rate = Number(
-            item?.saleRate ??
-              item?.sellingRate ??
-              item?.mrp ??
-              item?.rate ??
-              0
-          );
-
-          if (
-            !Number.isFinite(quantity) ||
-            !Number.isFinite(rate)
-          ) {
-            return sum;
-          }
-
-          return (
-            sum +
-            quantity * rate
-          );
-        },
-        0
-      );
-
-      return roundMoney(total);
-    }
-
-    return 0;
-  };
-
-  // =====================================================
-  // BILL-TIME PAID ONLY
-  // =====================================================
-
-  const getBillPaid = (bill) => {
-    const possibleValues = [
-      bill?.billPaid,
-      bill?.paidNow,
-      bill?.jama,
-      bill?.paidAtBill,
-      bill?.receivedAtBill,
-      bill?.paymentReceived,
-      bill?.paidAmount,
-      bill?.receivedAmount,
-      bill?.paid,
-    ];
-
-    for (const value of possibleValues) {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        const number = Number(value);
-
-        if (
-          Number.isFinite(number) &&
-          number >= 0
-        ) {
-          return roundMoney(number);
-        }
-      }
-    }
-
-    return 0;
-  };
-
-  // =====================================================
-  // BILL-TIME ADVANCE ADJUSTED
-  // =====================================================
-
-  const getBillAdvanceAdjusted = (bill) => {
-    const values = [
-      bill?.advanceAdjusted,
-      bill?.advanceUsed,
-    ];
-
-    for (const value of values) {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        const number = Number(value);
-
-        if (
-          Number.isFinite(number) &&
-          number >= 0
-        ) {
-          return roundMoney(number);
-        }
-      }
-    }
-
-    return 0;
-  };
-
-  // =====================================================
-  // FINAL BILL UDHARI
-  // =====================================================
-
-  const getBillUdhari = (bill) => {
-    const total =
-      getBillTotal(bill);
-
-    const paid =
-      getBillPaid(bill);
-
-    const advanceAdjusted =
-      getBillAdvanceAdjusted(bill);
-
-    return roundMoney(
-      Math.max(
-        total -
-          paid -
-          advanceAdjusted,
-        0
-      )
-    );
-  };
-
-  // =====================================================
-  // PAYMENT AMOUNT
-  // =====================================================
-
-  const getPaymentAmount = (payment) => {
-    const values = [
-      payment?.amount,
-      payment?.paidAmount,
-      payment?.payment,
-    ];
-
-    for (const value of values) {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        const number = Number(value);
-
-        if (
-          Number.isFinite(number) &&
-          number >= 0
-        ) {
-          return roundMoney(number);
-        }
-      }
-    }
-
-    return 0;
-  };
-
-  // =====================================================
-  // NORMALIZE MOBILE
-  // =====================================================
-
-  const normalizeMobile = (value) => {
-    return String(
-      value || ""
-    ).replace(/\D/g, "");
-  };
-
-  // =====================================================
-  // NORMALIZE NAME
-  // =====================================================
-
-  const normalizeName = (value) => {
-    return String(
-      value || ""
-    )
-      .trim()
-      .toLowerCase();
-  };
-
-  // =====================================================
-  // SAME CUSTOMER
-  //
-  // Name OR Mobile
-  // =====================================================
-
-  const isSameCustomer = (item) => {
-    const itemName =
-      normalizeName(
-        getCustomerName(item)
-      );
-
-    const itemMobile =
-      normalizeMobile(
-        getCustomerMobile(item)
-      );
-
-    const currentName =
-      normalizeName(customer);
-
-    const currentMobile =
-      normalizeMobile(mobile);
-
-    const nameMatched =
-      currentName &&
-      itemName &&
-      itemName === currentName;
-
-    const mobileMatched =
-      currentMobile &&
-      itemMobile &&
-      itemMobile === currentMobile;
-
-    return Boolean(
-      nameMatched ||
-      mobileMatched
-    );
-  };
-
-  // =====================================================
   // CUSTOMER BILLS
   // =====================================================
 
-  const customerBills = useMemo(() => {
-    return bills
-      .map((bill, index) => ({
-        bill,
-        index,
-      }))
-      .filter(({ bill }) =>
-        isSameCustomer(bill)
+  const customerBills =
+    useMemo(() => {
+      return bills.filter(
+        (bill) =>
+          isSameCustomer(
+            bill,
+            customer,
+            mobile
+          )
       );
-  }, [
-    bills,
-    customer,
-    mobile,
-  ]);
+    }, [
+      bills,
+      customer,
+      mobile,
+    ]);
 
   // =====================================================
-  // TOTAL BILLS
+  // TOTAL BILL
   // =====================================================
 
-  const totalCustomerBills = useMemo(() => {
-    let total = 0;
-
-    customerBills.forEach(({ bill }) => {
-      total += getBillTotal(bill);
-    });
-
-    return roundMoney(total);
-  }, [customerBills]);
-
-  // =====================================================
-  // TOTAL PAYMENTS
-  // =====================================================
-
-  const totalCustomerPayments = useMemo(() => {
-    let total = 0;
-
-    payments
-      .filter((payment) =>
-        isSameCustomer(payment)
-      )
-      .forEach((payment) => {
-        total += getPaymentAmount(payment);
-      });
-
-    return roundMoney(total);
-  }, [
-    payments,
-    customer,
-    mobile,
-  ]);
+  const totalBills =
+    useMemo(() => {
+      return roundMoney(
+        customerBills.reduce(
+          (sum, bill) =>
+            sum +
+            getBillTotal(
+              bill
+            ),
+          0
+        )
+      );
+    }, [customerBills]);
 
   // =====================================================
-  // LATER PAYMENT ALREADY USED FOR UDHARI
+  // BILL-TIME PAID
   // =====================================================
 
-  const totalAdjustedToUdhari = useMemo(() => {
-    let total = 0;
-
-    payments
-      .filter((payment) =>
-        isSameCustomer(payment)
-      )
-      .forEach((payment) => {
-        const value =
-          payment?.adjustedToUdhari;
-
-        if (
-          value !== undefined &&
-          value !== null &&
-          value !== ""
-        ) {
-          const number = Number(value);
-
-          if (
-            Number.isFinite(number) &&
-            number > 0
-          ) {
-            total += number;
-          }
-        }
-      });
-
-    return roundMoney(total);
-  }, [
-    payments,
-    customer,
-    mobile,
-  ]);
+  const totalBillPaid =
+    useMemo(() => {
+      return roundMoney(
+        customerBills.reduce(
+          (sum, bill) =>
+            sum +
+            getBillPaid(
+              bill
+            ),
+          0
+        )
+      );
+    }, [customerBills]);
 
   // =====================================================
-  // ORIGINAL UDHARI
+  // BILL UDHARI
   // =====================================================
 
-  const originalUdhari = useMemo(() => {
-    let total = 0;
+  const totalUdhari =
+    useMemo(() => {
+      return roundMoney(
+        customerBills.reduce(
+          (sum, bill) =>
+            sum +
+            getBillUdhari(
+              bill
+            ),
+          0
+        )
+      );
+    }, [customerBills]);
 
-    customerBills.forEach(({ bill }) => {
-      total += getBillUdhari(bill);
-    });
+  // =====================================================
+  // PAYMENT RECEIVED
+  // =====================================================
 
-    return roundMoney(
-      Math.max(total, 0)
-    );
-  }, [customerBills]);
+  const totalPayment =
+    useMemo(() => {
+      return roundMoney(
+        payments
+          .filter(
+            (payment) =>
+              isSameCustomer(
+                payment,
+                customer,
+                mobile
+              )
+          )
+          .reduce(
+            (sum, payment) =>
+              sum +
+              getPaymentAmount(
+                payment
+              ),
+            0
+          )
+      );
+    }, [
+      payments,
+      customer,
+      mobile,
+    ]);
 
   // =====================================================
   // CURRENT UDHARI
   // =====================================================
 
-  const currentUdhari = useMemo(() => {
-    return roundMoney(
-      Math.max(
-        originalUdhari -
-          totalAdjustedToUdhari,
-        0
-      )
+  const currentUdhari =
+    useMemo(() => {
+      return roundMoney(
+        Math.max(
+          0,
+          totalUdhari -
+            totalPayment
+        )
+      );
+    }, [
+      totalUdhari,
+      totalPayment,
+    ]);
+
+  // =====================================================
+  // ADVANCE
+  // =====================================================
+
+  const advances = useMemo(
+    () =>
+      loadArray("advances"),
+    [refresh]
+  );
+
+  const customerAdvances =
+    useMemo(
+      () =>
+        loadArray(
+          "customerAdvances"
+        ),
+      [refresh]
     );
-  }, [
-    originalUdhari,
-    totalAdjustedToUdhari,
-  ]);
 
-  // =====================================================
-  // CURRENT ADVANCE
-  //
-  // Customer Payments से बना Advance
-  // =====================================================
+  const currentAdvance =
+    useMemo(() => {
+      let total = 0;
 
-  const currentAdvance = useMemo(() => {
-    let total = 0;
-
-    payments
-      .filter((payment) =>
-        isSameCustomer(payment)
-      )
-      .forEach((payment) => {
-        const advance =
-          Number(
-            payment?.advanceAmount ??
-              payment?.adjustedToAdvance ??
-              0
-          );
-
-        if (
-          Number.isFinite(advance) &&
-          advance > 0
-        ) {
-          total += advance;
-        }
-      });
-
-    // =================================================
-    // ALSO CHECK ADVANCE MASTER
-    // =================================================
-
-    try {
-      const advances =
-        JSON.parse(
-          localStorage.getItem(
-            "advances"
-          ) || "[]"
-        );
-
-      if (Array.isArray(advances)) {
-        advances.forEach((item) => {
-          const itemName =
-            normalizeName(
-              item?.customerName ||
-                item?.customer ||
-                item?.name
-            );
-
-          const itemMobile =
-            normalizeMobile(
-              item?.customerMobile ||
-                item?.mobile ||
-                item?.phone
-            );
-
-          const nameMatched =
-            normalizeName(customer) &&
-            itemName ===
-              normalizeName(customer);
-
-          const mobileMatched =
-            normalizeMobile(mobile) &&
-            itemMobile ===
-              normalizeMobile(mobile);
-
+      advances.forEach(
+        (item) => {
           if (
-            nameMatched ||
-            mobileMatched
+            isSameCustomer(
+              item,
+              customer,
+              mobile
+            )
           ) {
-            const value =
+            total +=
               Number(
-                item?.amount ??
-                  item?.advance ??
-                  item?.advanceAmount ??
+                item.amount ||
+                  item.advance ||
+                  item.advanceAmount ||
                   0
               );
-
-            if (
-              Number.isFinite(value) &&
-              value > 0
-            ) {
-              total = Math.max(
-                total,
-                value
-              );
-            }
           }
-        });
-      }
-    } catch (error) {
-      console.error(
-        "Advance master load error:",
-        error
+        }
       );
-    }
 
-    return roundMoney(
-      Math.max(total, 0)
-    );
-  }, [
-    payments,
-    customer,
-    mobile,
-    refresh,
-  ]);
+      customerAdvances.forEach(
+        (item) => {
+          if (
+            isSameCustomer(
+              item,
+              customer,
+              mobile
+            )
+          ) {
+            total +=
+              Number(
+                item.amount ||
+                  item.advance ||
+                  item.advanceAmount ||
+                  0
+              );
+          }
+        }
+      );
 
-  // =====================================================
-  // LAST PAYMENTS
-  // =====================================================
+      customerBills.forEach(
+        (bill) => {
+          total -=
+            getBillAdvanceAdjusted(
+              bill
+            );
+        }
+      );
 
-  const lastPayments = useMemo(() => {
-    return payments
-      .filter((payment) =>
-        isSameCustomer(payment)
-      )
-      .slice()
-      .sort((a, b) => {
-        const dateA = new Date(
-          a?.createdAt ||
-            `${a?.date || ""} ${a?.time || ""}`
-        ).getTime();
-
-        const dateB = new Date(
-          b?.createdAt ||
-            `${b?.date || ""} ${b?.time || ""}`
-        ).getTime();
-
-        return dateB - dateA;
-      })
-      .slice(0, 10);
-  }, [
-    payments,
-    customer,
-    mobile,
-  ]);
+      return roundMoney(
+        Math.max(0, total)
+      );
+    }, [
+      advances,
+      customerAdvances,
+      customerBills,
+      customer,
+      mobile,
+    ]);
 
   // =====================================================
   // SAVE PAYMENT
   // =====================================================
 
-  const savePayment = () => {
-    const cleanCustomer =
-      customer.trim();
-
-    const cleanMobile =
-      mobile.trim();
-
-    const paymentAmount =
-      roundMoney(Number(amount));
-
-    // ===================================================
-    // VALIDATION
-    // ===================================================
-
-    if (!cleanCustomer) {
-      alert(
-        "कृपया Customer Name डालें।"
-      );
-      return;
-    }
-
-    if (
-      !Number.isFinite(paymentAmount) ||
-      paymentAmount <= 0
-    ) {
-      alert(
-        "कृपया सही Payment Amount डालें।"
-      );
-      return;
-    }
-
-    // ===================================================
-    // LATEST DATA
-    // ===================================================
-
-    const latestBills =
-      loadArray("bills");
-
-    const existingPayments =
-      loadArray("customerPayments");
-
-    // ===================================================
-    // FIND CUSTOMER BILLS
-    // ===================================================
-
-    const customerBillIndexes =
-      latestBills
-        .map((bill, index) => ({
-          bill,
-          index,
-        }))
-        .filter(({ bill }) => {
-          const billName =
-            normalizeName(
-              getCustomerName(bill)
-            );
-
-          const billMobile =
-            normalizeMobile(
-              getCustomerMobile(bill)
-            );
-
-          const nameMatched =
-            normalizeName(cleanCustomer) &&
-            billName ===
-              normalizeName(cleanCustomer);
-
-          const mobileMatched =
-            normalizeMobile(cleanMobile) &&
-            billMobile ===
-              normalizeMobile(cleanMobile);
-
-          return Boolean(
-            nameMatched ||
-            mobileMatched
-          );
-        });
-
-    // ===================================================
-    // NO BILL
-    // ===================================================
-
-    if (
-      customerBillIndexes.length === 0
-    ) {
-      alert(
-        "इस Customer का कोई Bill नहीं मिला।"
-      );
-      return;
-    }
-
-    // ===================================================
-    // ORIGINAL UDHARI
-    // ===================================================
-
-    let totalOriginalUdhari = 0;
-
-    customerBillIndexes.forEach(
-      ({ bill }) => {
-        totalOriginalUdhari +=
-          getBillUdhari(bill);
-      }
-    );
-
-    totalOriginalUdhari =
-      roundMoney(
-        Math.max(
-          totalOriginalUdhari,
-          0
-        )
-      );
-
-    // ===================================================
-    // PREVIOUS CUSTOMER PAYMENTS
-    // ===================================================
-
-    let alreadyAdjusted =
-      0;
-
-    existingPayments
-      .filter((payment) => {
-        const paymentName =
-          normalizeName(
-            getCustomerName(payment)
-          );
-
-        const paymentMobile =
-          normalizeMobile(
-            getCustomerMobile(payment)
-          );
-
-        const nameMatched =
-          normalizeName(cleanCustomer) &&
-          paymentName ===
-            normalizeName(cleanCustomer);
-
-        const mobileMatched =
-          normalizeMobile(cleanMobile) &&
-          paymentMobile ===
-            normalizeMobile(cleanMobile);
-
-        return Boolean(
-          nameMatched ||
-          mobileMatched
-        );
-      })
-      .forEach((payment) => {
-        const adjusted =
-          Number(
-            payment?.adjustedToUdhari ||
-              0
-          );
-
-        if (
-          Number.isFinite(adjusted) &&
-          adjusted > 0
-        ) {
-          alreadyAdjusted +=
-            adjusted;
-        }
-      });
-
-    alreadyAdjusted =
-      roundMoney(
-        Math.max(
-          alreadyAdjusted,
-          0
-        )
-      );
-
-    // ===================================================
-    // CURRENT UDHARI
-    // ===================================================
-
-    const totalCurrentUdhari =
-      roundMoney(
-        Math.max(
-          totalOriginalUdhari -
-            alreadyAdjusted,
-          0
-        )
-      );
-
-    // ===================================================
-    // PAYMENT SPLIT
-    //
-    // पहले Udhari
-    // फिर Extra = Advance
-    // ===================================================
-
-    const udhariPayment =
-      roundMoney(
-        Math.min(
-          paymentAmount,
-          totalCurrentUdhari
-        )
-      );
-
-    const advanceAdded =
-      roundMoney(
-        Math.max(
-          paymentAmount -
-            totalCurrentUdhari,
-          0
-        )
-      );
-
-    // ===================================================
-    // BILL ALLOCATION
-    // ===================================================
-
-    customerBillIndexes.sort(
-      (a, b) => {
-        return (
-          getBillDateValue(a.bill) -
-          getBillDateValue(b.bill)
-        );
-      }
-    );
-
-    let remainingToAllocate =
-      udhariPayment;
-
-    const allocations = [];
-
-    for (
-      let i = 0;
-      i <
-        customerBillIndexes.length &&
-      remainingToAllocate > 0.009;
-      i++
-    ) {
-      const billIndex =
-        customerBillIndexes[i].index;
-
-      const bill =
-        latestBills[billIndex];
-
-      if (!bill) {
-        continue;
+  const savePayment =
+    async () => {
+      if (saving) {
+        return;
       }
 
-      const billTotal =
-        getBillTotal(bill);
+      const cleanCustomer =
+        customer.trim();
 
-      const billPaid =
-        getBillPaid(bill);
+      const cleanMobile =
+        mobile.trim();
 
-      const billAdvanceAdjusted =
-        getBillAdvanceAdjusted(
-          bill
-        );
-
-      const originalBillUdhari =
+      const paymentAmount =
         roundMoney(
-          Math.max(
-            billTotal -
-              billPaid -
-              billAdvanceAdjusted,
-            0
-          )
+          Number(amount)
         );
+
+      if (!cleanCustomer) {
+        alert(
+          "Customer name डालें"
+        );
+        return;
+      }
 
       if (
-        originalBillUdhari <= 0
+        paymentAmount <= 0
       ) {
-        continue;
+        alert(
+          "Payment amount डालें"
+        );
+        return;
       }
 
-      // =================================================
-      // Previous allocations
-      // =================================================
-
-      let previousAllocated = 0;
-
-      existingPayments
-        .filter((payment) => {
-          const paymentName =
-            normalizeName(
-              getCustomerName(payment)
-            );
-
-          const paymentMobile =
-            normalizeMobile(
-              getCustomerMobile(payment)
-            );
-
-          const nameMatched =
-            normalizeName(cleanCustomer) &&
-            paymentName ===
-              normalizeName(cleanCustomer);
-
-          const mobileMatched =
-            normalizeMobile(cleanMobile) &&
-            paymentMobile ===
-              normalizeMobile(cleanMobile);
-
-          return Boolean(
-            nameMatched ||
-            mobileMatched
-          );
-        })
-        .forEach((payment) => {
-          if (
-            Array.isArray(
-              payment?.allocations
-            )
-          ) {
-            payment.allocations.forEach(
-              (allocation) => {
-                if (
-                  String(
-                    allocation?.billId ||
-                      ""
-                  ) ===
-                  String(
-                    bill?.id ||
-                      billIndex
-                  )
-                ) {
-                  previousAllocated +=
-                    Number(
-                      allocation?.amount ||
-                        0
-                    );
-                }
-              }
-            );
-          }
-        });
-
-      previousAllocated =
-        roundMoney(
-          Math.max(
-            previousAllocated,
-            0
-          )
-        );
-
-      const billCurrentUdhari =
-        roundMoney(
-          Math.max(
-            originalBillUdhari -
-              previousAllocated,
-            0
-          )
-        );
-
-      if (
-        billCurrentUdhari <= 0
-      ) {
-        continue;
-      }
-
-      const adjustAmount =
-        roundMoney(
-          Math.min(
-            remainingToAllocate,
-            billCurrentUdhari
-          )
-        );
-
-      if (
-        adjustAmount <= 0
-      ) {
-        continue;
-      }
-
-      allocations.push({
-        billId:
-          bill?.id ||
-          billIndex,
-
-        billIndex:
-          billIndex,
-
-        amount:
-          adjustAmount,
-      });
-
-      remainingToAllocate =
-        roundMoney(
-          remainingToAllocate -
-            adjustAmount
-        );
-    }
-
-    // ===================================================
-    // SAFETY
-    // ===================================================
-
-    if (
-      roundMoney(
-        remainingToAllocate
-      ) > 0.009
-    ) {
-      alert(
-        "Payment adjustment में समस्या हुई। Payment save नहीं किया गया।"
-      );
-      return;
-    }
-
-    // ===================================================
-    // DATE TIME
-    // ===================================================
-
-    const now =
-      new Date();
-
-    const date =
-      now.toLocaleDateString(
-        "en-IN"
-      );
-
-    const time =
-      now.toLocaleTimeString(
-        "en-IN",
-        {
-          hour: "2-digit",
-          minute: "2-digit",
-        }
-      );
-
-    // ===================================================
-    // NEW PAYMENT
-    // ===================================================
-
-    const newPayment = {
-      id:
-        `${Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2, 8)}`,
-
-      customer:
-        cleanCustomer,
-
-      customerName:
-        cleanCustomer,
-
-      name:
-        cleanCustomer,
-
-      mobile:
-        cleanMobile,
-
-      phone:
-        cleanMobile,
-
-      customerMobile:
-        cleanMobile,
-
-      // Actual amount received
-      amount:
-        paymentAmount,
-
-      paidAmount:
-        paymentAmount,
-
-      payment:
-        paymentAmount,
-
-      mode:
-        mode,
-
-      paymentMode:
-        mode,
-
-      note:
-        note.trim(),
-
-      date:
-        date,
-
-      time:
-        time,
-
-      // Udhari portion
-      adjustedToUdhari:
-        udhariPayment,
-
-      // Advance portion
-      isAdvance:
-        advanceAdded > 0,
-
-      advanceAmount:
-        advanceAdded,
-
-      adjustedToAdvance:
-        advanceAdded,
-
-      allocations:
-        allocations,
-
-      createdAt:
-        now.toISOString(),
-    };
-
-    // ===================================================
-    // SAVE CUSTOMER PAYMENT
-    // ===================================================
-
-    saveArray(
-      "customerPayments",
-      [
-        ...existingPayments,
-        newPayment,
-      ]
-    );
-
-    // ===================================================
-    // FINAL ADVANCE MASTER
-    //
-    // customerAdvances:
-    // {
-    //   mobile-or-name: amount
-    // }
-    //
-    // advances:
-    // [
-    //   {
-    //     customerName,
-    //     customerMobile,
-    //     amount
-    //   }
-    // ]
-    //
-    // दोनों storage compatible रखे जाएंगे.
-    // ===================================================
-
-    try {
-      const cleanNameKey =
-        normalizeName(
-          cleanCustomer
-        );
-
-      const cleanMobileKey =
-        normalizeMobile(
-          cleanMobile
-        );
-
-      // =================================================
-      // CUSTOMER ADVANCES MASTER
-      // =================================================
-
-      let customerAdvanceData =
-        {};
+      setSaving(true);
 
       try {
-        const raw =
-          JSON.parse(
-            localStorage.getItem(
-              "customerAdvances"
-            ) || "{}"
+        // -------------------------------------------------
+        // LATEST LOCAL DATA
+        // -------------------------------------------------
+
+        const latestBills =
+          loadArray("bills");
+
+        const existingPayments =
+          loadArray(
+            "customerPayments"
           );
 
-        if (
-          raw &&
-          typeof raw === "object" &&
-          !Array.isArray(raw)
-        ) {
-          customerAdvanceData =
-            raw;
-        }
-      } catch (error) {
-        customerAdvanceData =
-          {};
-      }
+        // -------------------------------------------------
+        // CUSTOMER BILLS
+        // -------------------------------------------------
 
-      // पुराने key से भी Advance खोजें
-      let oldCustomerAdvance =
-        0;
-
-      if (cleanMobileKey) {
-        oldCustomerAdvance =
-          Number(
-            customerAdvanceData[
-              cleanMobileKey
-            ] || 0
-          );
-      }
-
-      if (
-        oldCustomerAdvance <= 0 &&
-        cleanNameKey
-      ) {
-        oldCustomerAdvance =
-          Number(
-            customerAdvanceData[
-              cleanNameKey
-            ] || 0
-          );
-      }
-
-      if (
-        !Number.isFinite(
-          oldCustomerAdvance
-        )
-      ) {
-        oldCustomerAdvance = 0;
-      }
-
-      const finalCustomerAdvance =
-        roundMoney(
-          oldCustomerAdvance +
-            advanceAdded
-        );
-
-      // Mobile primary रहेगा
-      // Mobile नहीं है तो Name
-      const advanceKey =
-        cleanMobileKey ||
-        cleanNameKey;
-
-      if (advanceKey) {
-        customerAdvanceData[
-          advanceKey
-        ] =
-          finalCustomerAdvance;
-      }
-
-      // अगर Name key अलग है और Mobile available है,
-      // पुराना duplicate Name key remove करें.
-      if (
-        cleanMobileKey &&
-        cleanNameKey &&
-        cleanNameKey !==
-          cleanMobileKey
-      ) {
-        delete customerAdvanceData[
-          cleanNameKey
-        ];
-      }
-
-      localStorage.setItem(
-        "customerAdvances",
-        JSON.stringify(
-          customerAdvanceData
-        )
-      );
-
-      // =================================================
-      // ADVANCES ARRAY MASTER
-      // =================================================
-
-      let advances = [];
-
-      try {
-        const rawAdvances =
-          JSON.parse(
-            localStorage.getItem(
-              "advances"
-            ) || "[]"
-          );
-
-        if (
-          Array.isArray(
-            rawAdvances
-          )
-        ) {
-          advances =
-            rawAdvances;
-        }
-      } catch (error) {
-        advances = [];
-      }
-
-      // =================================================
-      // FIND MATCHING ADVANCE RECORDS
-      // Name OR Mobile
-      // =================================================
-
-      const matchingIndexes =
-        [];
-
-      advances.forEach(
-        (item, index) => {
-          const itemName =
-            normalizeName(
-              item?.customerName ||
-                item?.customer ||
-                item?.name
-            );
-
-          const itemMobile =
-            normalizeMobile(
-              item?.customerMobile ||
-                item?.mobile ||
-                item?.phone
-            );
-
-          const nameMatched =
-            cleanNameKey &&
-            itemName ===
-              cleanNameKey;
-
-          const mobileMatched =
-            cleanMobileKey &&
-            itemMobile ===
-              cleanMobileKey;
-
-          if (
-            nameMatched ||
-            mobileMatched
-          ) {
-            matchingIndexes.push(
-              index
-            );
-          }
-        }
-      );
-
-      // =================================================
-      // EXISTING ARRAY ADVANCE
-      // =================================================
-
-      let existingArrayAdvance =
-        0;
-
-      matchingIndexes.forEach(
-        (index) => {
-          const item =
-            advances[index];
-
-          const value =
-            Number(
-              item?.amount ??
-                item?.advance ??
-                item?.advanceAmount ??
-                0
-            );
-
-          if (
-            Number.isFinite(value) &&
-            value > 0
-          ) {
-            existingArrayAdvance +=
-              value;
-          }
-        }
-      );
-
-      existingArrayAdvance =
-        roundMoney(
-          Math.max(
-            existingArrayAdvance,
-            0
-          )
-        );
-
-      // =================================================
-      // IMPORTANT
-      //
-      // customerAdvances और advances दोनों में
-      // same old Advance हो सकता है.
-      //
-      // लेकिन नया Customer Payment Advance
-      // केवल एक बार add होगा.
-      // =================================================
-
-      let masterOldAdvance =
-        Math.max(
-          oldCustomerAdvance,
-          existingArrayAdvance
-        );
-
-      masterOldAdvance =
-        roundMoney(
-          masterOldAdvance
-        );
-
-      const finalArrayAdvance =
-        roundMoney(
-          masterOldAdvance +
-            advanceAdded
-        );
-
-      // पुराने matching records remove
-      if (
-        matchingIndexes.length > 0
-      ) {
-        advances =
-          advances.filter(
-            (_, index) =>
-              !matchingIndexes.includes(
-                index
+        const latestCustomerBills =
+          latestBills.filter(
+            (bill) =>
+              isSameCustomer(
+                bill,
+                cleanCustomer,
+                cleanMobile
               )
           );
-      }
 
-      // =================================================
-      // SAVE ONLY IF ADVANCE EXISTS
-      // =================================================
+        // -------------------------------------------------
+        // ORIGINAL UDHARI
+        // -------------------------------------------------
 
-      if (
-        finalArrayAdvance > 0
-      ) {
-        advances.push({
-          id:
-            `ADV-${Date.now()}-${Math.random()
-              .toString(36)
-              .slice(2, 8)}`,
+        const originalUdhari =
+          roundMoney(
+            latestCustomerBills.reduce(
+              (sum, bill) =>
+                sum +
+                getBillUdhari(
+                  bill
+                ),
+              0
+            )
+          );
+
+        // -------------------------------------------------
+        // PREVIOUS CUSTOMER PAYMENTS
+        // -------------------------------------------------
+
+        const previousPayments =
+          existingPayments.filter(
+            (payment) =>
+              isSameCustomer(
+                payment,
+                cleanCustomer,
+                cleanMobile
+              )
+          );
+
+        const alreadyPaid =
+          roundMoney(
+            previousPayments.reduce(
+              (sum, payment) =>
+                sum +
+                getPaymentAmount(
+                  payment
+                ),
+              0
+            )
+          );
+
+        // -------------------------------------------------
+        // CURRENT UDHARI
+        // -------------------------------------------------
+
+        const currentOutstanding =
+          roundMoney(
+            Math.max(
+              0,
+              originalUdhari -
+                alreadyPaid
+            )
+          );
+
+        // -------------------------------------------------
+        // PAYMENT SPLIT
+        //
+        // पहले Udhari
+        // फिर Advance
+        // -------------------------------------------------
+
+        const udhariPayment =
+          roundMoney(
+            Math.min(
+              paymentAmount,
+              currentOutstanding
+            )
+          );
+
+        const advanceAdded =
+          roundMoney(
+            Math.max(
+              0,
+              paymentAmount -
+                currentOutstanding
+            )
+          );
+
+        // -------------------------------------------------
+        // BILL ALLOCATION
+        // OLDEST FIRST
+        // -------------------------------------------------
+
+        const allocations =
+          [];
+
+        let remaining =
+          udhariPayment;
+
+        const sortedBills =
+          [
+            ...latestCustomerBills,
+          ].sort(
+            (a, b) => {
+              const aTime =
+                new Date(
+                  a.createdAt ||
+                    a.date ||
+                    0
+                ).getTime();
+
+              const bTime =
+                new Date(
+                  b.createdAt ||
+                    b.date ||
+                    0
+                ).getTime();
+
+              return (
+                aTime - bTime
+              );
+            }
+          );
+
+        sortedBills.forEach(
+          (
+            bill,
+            index
+          ) => {
+            if (
+              remaining <= 0
+            ) {
+              return;
+            }
+
+            const billUdhari =
+              getBillUdhari(
+                bill
+              );
+
+            if (
+              billUdhari <= 0
+            ) {
+              return;
+            }
+
+            const allocated =
+              roundMoney(
+                Math.min(
+                  billUdhari,
+                  remaining
+                )
+              );
+
+            if (
+              allocated > 0
+            ) {
+              allocations.push({
+                billId:
+                  bill.id ||
+                  bill.billId ||
+                  null,
+
+                billNo:
+                  bill.billNo ||
+                  bill.billNumber ||
+                  null,
+
+                billIndex:
+                  index,
+
+                amount:
+                  allocated,
+              });
+
+              remaining =
+                roundMoney(
+                  remaining -
+                    allocated
+                );
+            }
+          }
+        );
+
+        // -------------------------------------------------
+        // PAYMENT OBJECT
+        // -------------------------------------------------
+
+        const now =
+          new Date();
+
+        const paymentId =
+          `${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 10)}`;
+
+        const newPayment = {
+          id: paymentId,
 
           customer:
             cleanCustomer,
@@ -1565,138 +1069,292 @@ function CustomerPayment({ setPage, goBack }) {
           customerMobile:
             cleanMobile,
 
-          customerKey:
-            cleanMobileKey ||
-            cleanNameKey,
-
           amount:
-            finalArrayAdvance,
+            paymentAmount,
 
-          advance:
-            finalArrayAdvance,
+          paidAmount:
+            paymentAmount,
+
+          payment:
+            paymentAmount,
+
+          mode,
+
+          paymentMode:
+            mode,
+
+          note:
+            note.trim(),
+
+          date:
+            now.toISOString(),
+
+          paymentDate:
+            now.toISOString(),
+
+          time:
+            now.toLocaleTimeString(
+              "en-IN"
+            ),
+
+          adjustedToUdhari:
+            udhariPayment,
+
+          udhariAdjustment:
+            udhariPayment,
+
+          isAdvance:
+            advanceAdded > 0,
 
           advanceAmount:
-            finalArrayAdvance,
+            advanceAdded,
 
-          source:
-            "CustomerPayment",
+          adjustedToAdvance:
+            advanceAdded,
 
-          updatedAt:
-            now.toISOString(),
+          allocations,
 
           createdAt:
             now.toISOString(),
-        });
+        };
+
+        // -------------------------------------------------
+        // ONLINE POSTGRESQL SAVE
+        // -------------------------------------------------
+
+        const response =
+          await fetch(
+            `${API_URL}/api/customer-payments`,
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body: JSON.stringify(
+                newPayment
+              ),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            data?.message ||
+              `HTTP ${response.status}`
+          );
+        }
+
+        console.log(
+          "✅ CUSTOMER PAYMENT SAVED ONLINE",
+          data.payment
+        );
+
+        // -------------------------------------------------
+        // LOCAL SAVE
+        // -------------------------------------------------
+
+        saveArray(
+          "customerPayments",
+          [
+            ...existingPayments,
+            newPayment,
+          ]
+        );
+
+        // -------------------------------------------------
+        // ADVANCE LOCAL DATA
+        // -------------------------------------------------
+
+        if (
+          advanceAdded > 0
+        ) {
+          const oldAdvances =
+            loadArray(
+              "advances"
+            );
+
+          const oldCustomerAdvances =
+            loadArray(
+              "customerAdvances"
+            );
+
+          const advanceEntry = {
+            id:
+              `ADV-${paymentId}`,
+
+            customer:
+              cleanCustomer,
+
+            customerName:
+              cleanCustomer,
+
+            name:
+              cleanCustomer,
+
+            mobile:
+              cleanMobile,
+
+            customerMobile:
+              cleanMobile,
+
+            amount:
+              advanceAdded,
+
+            advance:
+              advanceAdded,
+
+            advanceAmount:
+              advanceAdded,
+
+            mode,
+
+            paymentMode:
+              mode,
+
+            note:
+              note.trim(),
+
+            date:
+              now.toISOString(),
+
+            createdAt:
+              now.toISOString(),
+
+            source:
+              "customerPayment",
+          };
+
+          saveArray(
+            "advances",
+            [
+              ...oldAdvances,
+              advanceEntry,
+            ]
+          );
+
+          saveArray(
+            "customerAdvances",
+            [
+              ...oldCustomerAdvances,
+              advanceEntry,
+            ]
+          );
+        }
+
+        // -------------------------------------------------
+        // EVENTS
+        // -------------------------------------------------
+
+        window.dispatchEvent(
+          new Event(
+            "customerPaymentUpdated"
+          )
+        );
+
+        window.dispatchEvent(
+          new Event(
+            "customerLedgerUpdated"
+          )
+        );
+
+        window.dispatchEvent(
+          new Event(
+            "customerAdvanceUpdated"
+          )
+        );
+
+        window.dispatchEvent(
+          new Event("storage")
+        );
+
+        // -------------------------------------------------
+        // SUCCESS
+        // -------------------------------------------------
+
+        alert(
+          `Payment ${money(
+            paymentAmount
+          )} successfully saved online.`
+        );
+
+        setAmount("");
+        setNote("");
+
+        setRefresh(
+          (value) =>
+            value + 1
+        );
+      } catch (error) {
+        console.error(
+          "CUSTOMER PAYMENT SAVE ERROR:",
+          error
+        );
+
+        alert(
+          "Payment online save नहीं हुआ.\n\n" +
+            error.message
+        );
+      } finally {
+        setSaving(false);
       }
+    };
 
-      localStorage.setItem(
-        "advances",
-        JSON.stringify(
-          advances
+  // =====================================================
+  // RECENT PAYMENTS
+  // =====================================================
+
+  const recentPayments =
+    useMemo(() => {
+      return payments
+        .filter(
+          (payment) =>
+            isSameCustomer(
+              payment,
+              customer,
+              mobile
+            )
         )
-      );
-
-    } catch (error) {
-      console.error(
-        "FINAL Advance Master Save Error:",
-        error
-      );
-    }
-
-    // ===================================================
-    // EVENTS
-    // ===================================================
-
-    window.dispatchEvent(
-      new Event(
-        "customerPaymentUpdated"
-      )
-    );
-
-    window.dispatchEvent(
-      new Event(
-        "customerLedgerUpdated"
-      )
-    );
-
-    window.dispatchEvent(
-      new Event(
-        "customerAdvanceUpdated"
-      )
-    );
-
-    try {
-      window.dispatchEvent(
-        new Event("storage")
-      );
-    } catch (error) {
-      console.error(
-        "Storage event error:",
-        error
-      );
-    }
-
-    // ===================================================
-    // FINAL BALANCE
-    // ===================================================
-
-    const remainingUdhari =
-      roundMoney(
-        Math.max(
-          totalCurrentUdhari -
-            udhariPayment,
-          0
+        .sort(
+          (a, b) =>
+            new Date(
+              b.createdAt ||
+                b.date ||
+                0
+            ).getTime() -
+            new Date(
+              a.createdAt ||
+                a.date ||
+                0
+            ).getTime()
         )
-      );
-
-    // ===================================================
-    // SUCCESS MESSAGE
-    // ===================================================
-
-    let message =
-      `Payment ${money(
-        paymentAmount
-      )} जमा हो गया।\n\n` +
-      `Payment Mode: ${mode}\n` +
-      `Udhari में Adjust: ${money(
-        udhariPayment
-      )}\n` +
-      `बाकी Udhari: ${money(
-        remainingUdhari
-      )}`;
-
-    if (
-      advanceAdded > 0
-    ) {
-      message +=
-        `\nAdvance: ${money(
-          advanceAdded
-        )}`;
-    }
-
-    alert(message);
-
-    // ===================================================
-    // CLEAR
-    // ===================================================
-
-    setAmount("");
-    setNote("");
-
-    // ===================================================
-    // REFRESH
-    // =====================================================
-
-    setRefresh(
-      (value) => value + 1
-    );
-  };
+        .slice(0, 10);
+    }, [
+      payments,
+      customer,
+      mobile,
+    ]);
 
   // =====================================================
   // BACK
   // =====================================================
 
-  const backToLedger = () => {
+  const handleBack = () => {
+    if (
+      typeof goBack ===
+      "function"
+    ) {
+      goBack();
+      return;
+    }
+
     if (
       typeof setPage ===
       "function"
@@ -1704,51 +1362,8 @@ function CustomerPayment({ setPage, goBack }) {
       setPage(
         "customerLedger"
       );
-      return;
-    }
-
-    if (
-      typeof goBack ===
-      "function"
-    ) {
-      goBack();
     }
   };
-
-  // =====================================================
-  // PREVIEW CALCULATIONS
-  // =====================================================
-
-  const previewPayment =
-    roundMoney(
-      Number(amount)
-    );
-
-  const previewUdhari =
-    roundMoney(
-      Math.min(
-        previewPayment,
-        currentUdhari
-      )
-    );
-
-  const previewAdvance =
-    roundMoney(
-      Math.max(
-        previewPayment -
-          currentUdhari,
-        0
-      )
-    );
-
-  const previewRemaining =
-    roundMoney(
-      Math.max(
-        currentUdhari -
-          previewPayment,
-        0
-      )
-    );
 
   // =====================================================
   // UI
@@ -1756,79 +1371,182 @@ function CustomerPayment({ setPage, goBack }) {
 
   return (
     <div
-      style={pageStyle}
+      style={{
+        minHeight:
+          "100vh",
+        background:
+          "#f5f7fa",
+        padding:
+          "15px",
+        boxSizing:
+          "border-box",
+      }}
     >
       {/* HEADER */}
 
       <div
-        style={headerStyle}
+        style={{
+          display:
+            "flex",
+          justifyContent:
+            "space-between",
+          alignItems:
+            "center",
+          gap:
+            "10px",
+          flexWrap:
+            "wrap",
+          marginBottom:
+            "15px",
+        }}
       >
         <div>
-          <h1
-            style={headerTitle}
+          <h2
+            style={{
+              margin: 0,
+            }}
           >
-            💳 Customer Payment
-          </h1>
+            💰 Customer Payment
+          </h2>
 
           <div
-            style={subtitle}
+            style={{
+              color:
+                "#777",
+              fontSize:
+                "13px",
+              marginTop:
+                "5px",
+            }}
           >
-            Customer Payment जमा करें
+            Online PostgreSQL Payment
           </div>
         </div>
 
         <button
-          type="button"
           onClick={
-            backToLedger
+            handleBack
           }
-          style={backButton}
+          style={{
+            padding:
+              "10px 15px",
+            border:
+              "none",
+            borderRadius:
+              "7px",
+            background:
+              "#555",
+            color:
+              "#fff",
+            fontWeight:
+              "700",
+            cursor:
+              "pointer",
+          }}
         >
-          ⬅️ Customer Ledger
+          ← Back
         </button>
       </div>
 
       {/* CUSTOMER */}
 
       <div
-        style={cardStyle}
+        style={{
+          background:
+            "#fff",
+          borderRadius:
+            "10px",
+          padding:
+            "15px",
+          marginBottom:
+            "15px",
+        }}
       >
-        <h2
-          style={sectionTitle}
+        <h3
+          style={{
+            marginTop: 0,
+          }}
         >
-          👤 Customer
-        </h2>
+          Customer
+        </h3>
 
         <div
-          style={customerInfo}
+          style={{
+            display:
+              "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit,minmax(220px,1fr))",
+            gap:
+              "10px",
+          }}
         >
           <div>
-            <div
-              style={labelStyle}
-            >
+            <label>
               Customer Name
-            </div>
+            </label>
 
-            <div
-              style={customerNameStyle}
-            >
-              {customer ||
-                "Customer नहीं चुना गया"}
-            </div>
+            <input
+              value={
+                customer
+              }
+              onChange={(e) =>
+                setCustomer(
+                  e.target.value
+                )
+              }
+              placeholder="Customer name"
+              style={{
+                width:
+                  "100%",
+                padding:
+                  "11px",
+                marginTop:
+                  "5px",
+                boxSizing:
+                  "border-box",
+                border:
+                  "1px solid #ccc",
+                borderRadius:
+                  "7px",
+                fontSize:
+                  "16px",
+              }}
+            />
           </div>
 
           <div>
-            <div
-              style={labelStyle}
-            >
+            <label>
               Mobile
-            </div>
+            </label>
 
-            <div
-              style={mobileStyle}
-            >
-              {mobile || "-"}
-            </div>
+            <input
+              value={
+                mobile
+              }
+              onChange={(e) =>
+                setMobile(
+                  e.target.value
+                )
+              }
+              placeholder="Mobile number"
+              maxLength={10}
+              style={{
+                width:
+                  "100%",
+                padding:
+                  "11px",
+                marginTop:
+                  "5px",
+                boxSizing:
+                  "border-box",
+                border:
+                  "1px solid #ccc",
+                borderRadius:
+                  "7px",
+                fontSize:
+                  "16px",
+              }}
+            />
           </div>
         </div>
       </div>
@@ -1836,526 +1554,518 @@ function CustomerPayment({ setPage, goBack }) {
       {/* BALANCE */}
 
       <div
-        style={balanceGrid}
+        style={{
+          display:
+            "grid",
+          gridTemplateColumns:
+            "repeat(auto-fit,minmax(150px,1fr))",
+          gap:
+            "10px",
+          marginBottom:
+            "15px",
+        }}
       >
-        {/* UDHARI */}
-
         <div
           style={{
-            ...balanceCard,
-            borderLeft:
-              "5px solid #d32f2f",
+            background:
+              "#fff",
+            padding:
+              "15px",
+            borderRadius:
+              "10px",
           }}
         >
           <div
-            style={balanceTitle}
+            style={{
+              color:
+                "#777",
+            }}
           >
-            बाकी उधारी
+            Total Bill
           </div>
 
+          <strong
+            style={{
+              fontSize:
+                "20px",
+            }}
+          >
+            {money(
+              totalBills
+            )}
+          </strong>
+        </div>
+
+        <div
+          style={{
+            background:
+              "#fff",
+            padding:
+              "15px",
+            borderRadius:
+              "10px",
+          }}
+        >
           <div
             style={{
-              ...balanceValue,
+              color:
+                "#777",
+            }}
+          >
+            Bill Udhari
+          </div>
+
+          <strong
+            style={{
+              fontSize:
+                "20px",
               color:
                 "#d32f2f",
             }}
           >
             {money(
-              currentUdhari
+              totalUdhari
             )}
-          </div>
-
-          <div
-            style={udhariHint}
-          >
-            Customer की वर्तमान बाकी
-          </div>
+          </strong>
         </div>
-
-        {/* TOTAL BILLS */}
 
         <div
           style={{
-            ...balanceCard,
-            borderLeft:
-              "5px solid #1565c0",
+            background:
+              "#fff",
+            padding:
+              "15px",
+            borderRadius:
+              "10px",
           }}
         >
           <div
-            style={balanceTitle}
-          >
-            Total Bills
-          </div>
-
-          <div
             style={{
-              ...balanceValue,
               color:
-                "#1565c0",
+                "#777",
             }}
           >
-            {money(
-              totalCustomerBills
-            )}
+            Payment Received
           </div>
 
-          <div
-            style={udhariHint}
-          >
-            Customer के कुल Bills
-          </div>
-        </div>
-
-        {/* TOTAL PAYMENTS */}
-
-        <div
-          style={{
-            ...balanceCard,
-            borderLeft:
-              "5px solid #2e7d32",
-          }}
-        >
-          <div
-            style={balanceTitle}
-          >
-            Total Payments
-          </div>
-
-          <div
+          <strong
             style={{
-              ...balanceValue,
+              fontSize:
+                "20px",
               color:
                 "#2e7d32",
             }}
           >
             {money(
-              totalCustomerPayments
+              totalPayment
             )}
-          </div>
-
-          <div
-            style={udhariHint}
-          >
-            अब तक जमा Payments
-          </div>
+          </strong>
         </div>
-
-        {/* ADVANCE */}
 
         <div
           style={{
-            ...balanceCard,
-            borderLeft:
-              "5px solid #f57c00",
+            background:
+              "#fff",
+            padding:
+              "15px",
+            borderRadius:
+              "10px",
           }}
         >
           <div
-            style={balanceTitle}
+            style={{
+              color:
+                "#777",
+            }}
+          >
+            Current Udhari
+          </div>
+
+          <strong
+            style={{
+              fontSize:
+                "20px",
+              color:
+                currentUdhari >
+                0
+                  ? "#d32f2f"
+                  : "#2e7d32",
+            }}
+          >
+            {money(
+              currentUdhari
+            )}
+          </strong>
+        </div>
+
+        <div
+          style={{
+            background:
+              "#fff",
+            padding:
+              "15px",
+            borderRadius:
+              "10px",
+          }}
+        >
+          <div
+            style={{
+              color:
+                "#777",
+            }}
           >
             Advance
           </div>
 
-          <div
+          <strong
             style={{
-              ...balanceValue,
+              fontSize:
+                "20px",
               color:
-                "#f57c00",
+                "#1565c0",
             }}
           >
             {money(
               currentAdvance
             )}
-          </div>
-
-          <div
-            style={udhariHint}
-          >
-            Customer का Advance Balance
-          </div>
+          </strong>
         </div>
       </div>
 
       {/* PAYMENT FORM */}
 
       <div
-        style={cardStyle}
+        style={{
+          background:
+            "#fff",
+          borderRadius:
+            "10px",
+          padding:
+            "15px",
+          marginBottom:
+            "15px",
+        }}
       >
-        <h2
-          style={sectionTitle}
+        <h3
+          style={{
+            marginTop: 0,
+          }}
         >
-          💰 Customer Payment जमा करें
-        </h2>
+          💰 Receive Payment
+        </h3>
 
         <div
-          style={formGrid}
+          style={{
+            display:
+              "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit,minmax(180px,1fr))",
+            gap:
+              "10px",
+          }}
         >
-          {/* AMOUNT */}
-
           <div>
-            <label
-              style={labelStyle}
-            >
-              Payment Amount
+            <label>
+              Amount
             </label>
 
             <input
               type="number"
-              min="0.01"
-              step="0.01"
-              placeholder="₹ Amount"
-              value={amount}
+              value={
+                amount
+              }
               onChange={(e) =>
                 setAmount(
                   e.target.value
                 )
               }
-              style={inputStyle}
+              placeholder="₹ Amount"
+              style={{
+                width:
+                  "100%",
+                padding:
+                  "12px",
+                marginTop:
+                  "5px",
+                boxSizing:
+                  "border-box",
+                border:
+                  "1px solid #ccc",
+                borderRadius:
+                  "7px",
+                fontSize:
+                  "18px",
+              }}
             />
-
-            <div
-              style={maxAmountText}
-            >
-              Payment Amount की कोई maximum limit नहीं है।
-            </div>
           </div>
 
-          {/* MODE */}
-
           <div>
-            <label
-              style={labelStyle}
-            >
+            <label>
               Payment Mode
             </label>
 
             <select
-              value={mode}
+              value={
+                mode
+              }
               onChange={(e) =>
                 setMode(
                   e.target.value
                 )
               }
-              style={inputStyle}
+              style={{
+                width:
+                  "100%",
+                padding:
+                  "12px",
+                marginTop:
+                  "5px",
+                boxSizing:
+                  "border-box",
+                border:
+                  "1px solid #ccc",
+                borderRadius:
+                  "7px",
+                fontSize:
+                  "16px",
+              }}
             >
-              <option value="Cash">
+              <option>
                 Cash
               </option>
-
-              <option value="UPI">
+              <option>
                 UPI
               </option>
-
-              <option value="Bank">
-                Bank
-              </option>
-
-              <option value="Card">
+              <option>
                 Card
               </option>
-
-              <option value="Other">
+              <option>
+                Bank
+              </option>
+              <option>
                 Other
               </option>
             </select>
           </div>
-        </div>
 
-        {/* NOTE */}
+          <div>
+            <label>
+              Remark
+            </label>
 
-        <div
-          style={{
-            marginTop: 12,
-          }}
-        >
-          <label
-            style={labelStyle}
-          >
-            Note
-          </label>
-
-          <input
-            type="text"
-            placeholder="Payment Note"
-            value={note}
-            onChange={(e) =>
-              setNote(
-                e.target.value
-              )
-            }
-            style={inputStyle}
-          />
+            <input
+              type="text"
+              value={
+                note
+              }
+              onChange={(e) =>
+                setNote(
+                  e.target.value
+                )
+              }
+              placeholder="Remark"
+              style={{
+                width:
+                  "100%",
+                padding:
+                  "12px",
+                marginTop:
+                  "5px",
+                boxSizing:
+                  "border-box",
+                border:
+                  "1px solid #ccc",
+                borderRadius:
+                  "7px",
+                fontSize:
+                  "16px",
+              }}
+            />
+          </div>
         </div>
 
         {/* PREVIEW */}
 
-        {previewPayment > 0 && (
+        {Number(
+          amount
+        ) > 0 && (
           <div
-            style={previewBox}
+            style={{
+              marginTop:
+                "15px",
+              padding:
+                "12px",
+              borderRadius:
+                "8px",
+              background:
+                "#f1f8e9",
+            }}
           >
-            <div>
-              Payment:
-              <b>
-                {" "}
-                {money(
-                  previewPayment
-                )}
-              </b>
-            </div>
+            <strong>
+              Payment Preview
+            </strong>
 
-            <div>
-              Payment Mode:
-              <b>
-                {" "}
-                {mode}
-              </b>
-            </div>
-
-            <div>
-              Udhari में Adjust:
-              <b
-                style={{
-                  color:
-                    "#d32f2f",
-                }}
-              >
-                {" "}
-                {money(
-                  previewUdhari
-                )}
-              </b>
-            </div>
-
-            <div>
-              Payment के बाद बाकी Udhari:
-              <b
-                style={{
-                  color:
-                    "#1565c0",
-                }}
-              >
-                {" "}
-                {money(
-                  previewRemaining
-                )}
-              </b>
-            </div>
-
-            {previewAdvance > 0 && (
-              <div
-                style={{
-                  marginTop:
-                    7,
-                  color:
-                    "#f57c00",
-                  fontWeight:
-                    "bold",
-                }}
-              >
-                💰 Advance:
-                {" "}
-                {money(
-                  previewAdvance
-                )}
-              </div>
-            )}
-
-            {previewPayment <=
-              currentUdhari &&
-              currentUdhari > 0 && (
-                <div
-                  style={{
-                    marginTop:
-                      7,
-                    color:
-                      "#2e7d32",
-                    fontWeight:
-                      "bold",
-                  }}
-                >
-                  ✅ पूरी Payment Udhari
-                  में adjust होगी।
-                </div>
+            <div
+              style={{
+                marginTop:
+                  "8px",
+              }}
+            >
+              Payment:{" "}
+              {money(
+                Number(
+                  amount
+                )
               )}
+            </div>
 
-            {previewPayment >
-              currentUdhari &&
-              currentUdhari >= 0 && (
-                <div
-                  style={{
-                    marginTop:
-                      7,
-                    color:
-                      "#f57c00",
-                    fontWeight:
-                      "bold",
-                  }}
-                >
-                  💰 Udhari पूरी clear होगी
-                  और extra amount Advance में जाएगा।
-                </div>
+            <div>
+              Udhari में जाएगा:{" "}
+              {money(
+                Math.min(
+                  Number(
+                    amount
+                  ),
+                  currentUdhari
+                )
               )}
+            </div>
+
+            <div>
+              Advance बनेगा:{" "}
+              {money(
+                Math.max(
+                  0,
+                  Number(
+                    amount
+                  ) -
+                    currentUdhari
+                )
+              )}
+            </div>
           </div>
         )}
 
-        {/* SAVE */}
-
         <button
-          type="button"
           onClick={
             savePayment
           }
           disabled={
-            !customer.trim() ||
-            previewPayment <= 0
+            saving
           }
           style={{
-            ...saveButton,
-            opacity:
-              !customer.trim() ||
-              previewPayment <= 0
-                ? 0.55
-                : 1,
+            width:
+              "100%",
+            marginTop:
+              "15px",
+            padding:
+              "13px",
+            border:
+              "none",
+            borderRadius:
+              "8px",
+            background:
+              saving
+                ? "#999"
+                : "#2e7d32",
+            color:
+              "#fff",
+            fontSize:
+              "17px",
+            fontWeight:
+              "700",
             cursor:
-              !customer.trim() ||
-              previewPayment <= 0
+              saving
                 ? "not-allowed"
                 : "pointer",
           }}
         >
-          💾 Payment जमा करें
+          {saving
+            ? "⏳ Saving Online..."
+            : "💾 Save Customer Payment"}
         </button>
 
-        {/* RULE */}
-
         <div
-          style={ruleBox}
+          style={{
+            marginTop:
+              "12px",
+            padding:
+              "10px",
+            background:
+              "#fff8e1",
+            borderRadius:
+              "7px",
+            fontSize:
+              "13px",
+            color:
+              "#795548",
+          }}
         >
-          <b>
-            📌 Payment Rule
-          </b>
+          <strong>
+            Payment Rule:
+          </strong>
 
-          <div
-            style={{
-              marginTop: 6,
-            }}
-          >
-            Bill Total − Bill के समय Paid −
-            Previous Advance Adjusted =
-            Bill की बाकी Udhari
-          </div>
+          <br />
 
-          <div
-            style={{
-              marginTop: 4,
-            }}
-          >
-            Customer Payment से Original
-            Bill Paid नहीं बदलेगा।
-          </div>
+          पहले Customer की Udhari
+          adjust होगी।
 
-          <div
-            style={{
-              marginTop: 4,
-            }}
-          >
-            Billing के समय लगाया गया Previous
-            Advance दोबारा Udhari में नहीं आएगा।
-          </div>
+          <br />
 
-          <div
-            style={{
-              marginTop: 4,
-            }}
-          >
-            Customer Payment पहले बाकी
-            Udhari में adjust होगी।
-          </div>
+          Udhari से ज्यादा payment
+          होने पर बाकी amount
+          Advance बनेगा।
 
-          <div
-            style={{
-              marginTop: 4,
-            }}
-          >
-            Udhari से ज्यादा Payment होने पर
-            extra amount Advance बनेगा।
-          </div>
+          <br />
 
-          <div
-            style={{
-              marginTop: 4,
-            }}
-          >
-            Payment कितनी भी किस्तों में
-            जमा कर सकते हैं।
-          </div>
+          Bill का Paid field
+          change नहीं होगा।
 
-          <div
-            style={{
-              marginTop: 4,
-            }}
-          >
-            Multiple Bills होने पर सबसे
-            पुराना Bill पहले adjust होगा।
-          </div>
+          <br />
 
-          <div
-            style={{
-              marginTop: 8,
-              color:
-                "#1565c0",
-              fontWeight:
-                "bold",
-            }}
-          >
-            उदाहरण: Bill ₹1000 → Bill Paid ₹200
-            → Advance Adjust ₹300 → Udhari ₹500
-          </div>
-
-          <div
-            style={{
-              marginTop: 4,
-              color:
-                "#2e7d32",
-              fontWeight:
-                "bold",
-            }}
-          >
-            Customer Payment ₹500
-            → Udhari ₹0
-          </div>
-
-          <div
-            style={{
-              marginTop: 4,
-              color:
-                "#f57c00",
-              fontWeight:
-                "bold",
-            }}
-          >
-            Customer Payment ₹700
-            → Udhari ₹0 + Advance ₹200
-          </div>
+          Payment PostgreSQL में
+          online save होगा।
         </div>
       </div>
 
-      {/* PAYMENT HISTORY */}
+      {/* RECENT PAYMENTS */}
 
       <div
-        style={cardStyle}
+        style={{
+          background:
+            "#fff",
+          borderRadius:
+            "10px",
+          overflow:
+            "hidden",
+        }}
       >
-        <h2
-          style={sectionTitle}
+        <div
+          style={{
+            padding:
+              "12px",
+            fontWeight:
+              "700",
+            borderBottom:
+              "1px solid #eee",
+          }}
         >
-          📋 Recent Payments
-        </h2>
+          💰 Recent Payments
+        </div>
 
-        {lastPayments.length ===
+        {recentPayments.length ===
         0 ? (
           <div
-            style={emptyBox}
+            style={{
+              padding:
+                "20px",
+              textAlign:
+                "center",
+              color:
+                "#777",
+            }}
           >
-            अभी कोई Payment नहीं है।
+            No payment entries
           </div>
         ) : (
           <div
@@ -2365,164 +2075,195 @@ function CustomerPayment({ setPage, goBack }) {
             }}
           >
             <table
-              style={tableStyle}
+              style={{
+                width:
+                  "100%",
+                borderCollapse:
+                  "collapse",
+                minWidth:
+                  "650px",
+              }}
             >
               <thead>
-                <tr>
+                <tr
+                  style={{
+                    background:
+                      "#f0f2f5",
+                  }}
+                >
                   <th
-                    style={thStyle}
+                    style={{
+                      padding:
+                        "9px",
+                      textAlign:
+                        "left",
+                    }}
                   >
                     Date
                   </th>
 
                   <th
-                    style={thStyle}
-                  >
-                    Time
-                  </th>
-
-                  <th
-                    style={thStyle}
+                    style={{
+                      padding:
+                        "9px",
+                      textAlign:
+                        "left",
+                    }}
                   >
                     Mode
                   </th>
 
                   <th
-                    style={thStyle}
+                    style={{
+                      padding:
+                        "9px",
+                      textAlign:
+                        "right",
+                    }}
                   >
-                    Amount
+                    Payment
                   </th>
 
                   <th
-                    style={thStyle}
+                    style={{
+                      padding:
+                        "9px",
+                      textAlign:
+                        "right",
+                    }}
                   >
                     Udhari Adjust
                   </th>
 
                   <th
-                    style={thStyle}
+                    style={{
+                      padding:
+                        "9px",
+                      textAlign:
+                        "right",
+                    }}
                   >
                     Advance
-                  </th>
-
-                  <th
-                    style={thStyle}
-                  >
-                    Note
                   </th>
                 </tr>
               </thead>
 
               <tbody>
-                {lastPayments.map(
+                {recentPayments.map(
                   (
                     payment,
                     index
                   ) => {
-                    const paymentAmount =
-                      getPaymentAmount(
-                        payment
-                      );
+                    const date =
+                      payment.date ||
+                      payment.createdAt;
 
-                    const adjusted =
-                      roundMoney(
-                        Number(
-                          payment?.adjustedToUdhari ||
-                            0
-                        )
-                      );
+                    let dateText =
+                      "-";
 
-                    const advance =
-                      roundMoney(
-                        Number(
-                          payment?.advanceAmount ||
-                            payment?.adjustedToAdvance ||
-                            0
+                    if (date) {
+                      const d =
+                        new Date(
+                          date
+                        );
+
+                      if (
+                        !Number.isNaN(
+                          d.getTime()
                         )
-                      );
+                      ) {
+                        dateText =
+                          d.toLocaleDateString(
+                            "en-IN"
+                          );
+                      }
+                    }
 
                     return (
                       <tr
                         key={
-                          payment?.id ||
-                          index
+                          payment.id ||
+                          `payment-${index}`
                         }
+                        style={{
+                          borderBottom:
+                            "1px solid #eee",
+                        }}
                       >
                         <td
-                          style={tdStyle}
-                        >
-                          {payment?.date ||
-                            "-"}
-                        </td>
-
-                        <td
-                          style={tdStyle}
-                        >
-                          {payment?.time ||
-                            "-"}
-                        </td>
-
-                        <td
                           style={{
-                            ...tdStyle,
-                            fontWeight:
-                              "bold",
-                            color:
-                              "#444",
+                            padding:
+                              "9px",
                           }}
                         >
-                          {payment?.mode ||
-                            payment?.paymentMode ||
-                            "-"}
+                          {
+                            dateText
+                          }
                         </td>
 
                         <td
                           style={{
-                            ...tdStyle,
+                            padding:
+                              "9px",
+                          }}
+                        >
+                          {
+                            payment.mode ||
+                            payment.paymentMode ||
+                            "-"
+                          }
+                        </td>
+
+                        <td
+                          style={{
+                            padding:
+                              "9px",
+                            textAlign:
+                              "right",
+                            color:
+                              "#2e7d32",
+                            fontWeight:
+                              "700",
+                          }}
+                        >
+                          {money(
+                            getPaymentAmount(
+                              payment
+                            )
+                          )}
+                        </td>
+
+                        <td
+                          style={{
+                            padding:
+                              "9px",
+                            textAlign:
+                              "right",
                             color:
                               "#1565c0",
-                            fontWeight:
-                              "bold",
                           }}
                         >
                           {money(
-                            paymentAmount
+                            getPaymentAdjustment(
+                              payment
+                            )
                           )}
                         </td>
 
                         <td
                           style={{
-                            ...tdStyle,
+                            padding:
+                              "9px",
+                            textAlign:
+                              "right",
                             color:
-                              "#d32f2f",
-                            fontWeight:
-                              "bold",
+                              "#1565c0",
                           }}
                         >
                           {money(
-                            adjusted
+                            payment.advanceAmount ||
+                              0
                           )}
-                        </td>
-
-                        <td
-                          style={{
-                            ...tdStyle,
-                            color:
-                              "#f57c00",
-                            fontWeight:
-                              "bold",
-                          }}
-                        >
-                          {money(
-                            advance
-                          )}
-                        </td>
-
-                        <td
-                          style={tdStyle}
-                        >
-                          {payment?.note ||
-                            "-"}
                         </td>
                       </tr>
                     );
@@ -2536,217 +2277,5 @@ function CustomerPayment({ setPage, goBack }) {
     </div>
   );
 }
-
-// =====================================================
-// STYLES
-// =====================================================
-
-const pageStyle = {
-  minHeight: "100vh",
-  padding: "12px",
-  background: "#f2f5f9",
-  fontFamily: "Arial, sans-serif",
-  boxSizing: "border-box",
-};
-
-const headerStyle = {
-  background:
-    "linear-gradient(135deg,#4a148c,#7b1fa2,#ab47bc)",
-  color: "white",
-  padding: "17px",
-  borderRadius: "11px",
-  marginBottom: "13px",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "10px",
-  flexWrap: "wrap",
-  boxShadow:
-    "0 3px 10px rgba(0,0,0,0.12)",
-};
-
-const headerTitle = {
-  margin: 0,
-  fontSize: "24px",
-};
-
-const subtitle = {
-  marginTop: "4px",
-  fontSize: "13px",
-};
-
-const backButton = {
-  padding: "9px 14px",
-  background:
-    "rgba(255,255,255,0.18)",
-  color: "white",
-  border:
-    "1px solid rgba(255,255,255,0.4)",
-  borderRadius: "7px",
-  cursor: "pointer",
-  fontWeight: "bold",
-};
-
-const cardStyle = {
-  background: "white",
-  padding: "14px",
-  borderRadius: "10px",
-  marginBottom: "13px",
-  boxShadow:
-    "0 2px 7px rgba(0,0,0,0.06)",
-};
-
-const sectionTitle = {
-  margin: "0 0 12px",
-  fontSize: "18px",
-};
-
-const customerInfo = {
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(auto-fit,minmax(180px,1fr))",
-  gap: "12px",
-  background: "#f8fafc",
-  padding: "12px",
-  borderRadius: "8px",
-};
-
-const labelStyle = {
-  display: "block",
-  fontSize: "12px",
-  color: "#777",
-  marginBottom: "5px",
-};
-
-const customerNameStyle = {
-  fontSize: "18px",
-  fontWeight: "bold",
-  color: "#1565c0",
-};
-
-const mobileStyle = {
-  fontSize: "16px",
-  fontWeight: "bold",
-  color: "#444",
-};
-
-const balanceGrid = {
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(auto-fit,minmax(220px,1fr))",
-  gap: "10px",
-  marginBottom: "13px",
-};
-
-const balanceCard = {
-  background: "white",
-  padding: "15px",
-  borderRadius: "9px",
-  boxShadow:
-    "0 2px 7px rgba(0,0,0,0.06)",
-  boxSizing: "border-box",
-};
-
-const balanceTitle = {
-  fontSize: "12px",
-  color: "#777",
-};
-
-const balanceValue = {
-  marginTop: "5px",
-  fontSize: "24px",
-  fontWeight: "bold",
-};
-
-const udhariHint = {
-  marginTop: "5px",
-  fontSize: "11px",
-  color: "#777",
-};
-
-const formGrid = {
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(auto-fit,minmax(220px,1fr))",
-  gap: "12px",
-};
-
-const inputStyle = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "11px",
-  border: "1px solid #ccc",
-  borderRadius: "7px",
-  fontSize: "15px",
-  background: "white",
-};
-
-const maxAmountText = {
-  marginTop: "5px",
-  fontSize: "11px",
-  color: "#777",
-};
-
-const previewBox = {
-  marginTop: "14px",
-  padding: "12px",
-  borderRadius: "8px",
-  background: "#f5f7fa",
-  border:
-    "1px solid #d9e0e7",
-  lineHeight: "1.8",
-  fontSize: "13px",
-};
-
-const saveButton = {
-  width: "100%",
-  marginTop: "14px",
-  padding: "13px",
-  background: "#2e7d32",
-  color: "white",
-  border: "none",
-  borderRadius: "8px",
-  cursor: "pointer",
-  fontWeight: "bold",
-  fontSize: "16px",
-};
-
-const ruleBox = {
-  marginTop: "12px",
-  padding: "12px",
-  borderRadius: "8px",
-  background: "#fff8e1",
-  border:
-    "1px solid #ffe082",
-  fontSize: "12px",
-  color: "#5d4037",
-};
-
-const emptyBox = {
-  padding: "20px",
-  textAlign: "center",
-  color: "#777",
-  background: "#f7f8fa",
-  borderRadius: "7px",
-};
-
-const tableStyle = {
-  width: "100%",
-  borderCollapse: "collapse",
-  fontSize: "12px",
-};
-
-const thStyle = {
-  border: "1px solid #ddd",
-  padding: "8px",
-  background: "#f1f5f9",
-  whiteSpace: "nowrap",
-};
-
-const tdStyle = {
-  border: "1px solid #ddd",
-  padding: "8px",
-  whiteSpace: "nowrap",
-};
 
 export default CustomerPayment;
